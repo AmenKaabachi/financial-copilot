@@ -19,8 +19,10 @@ class IntentResult(BaseModel):
     recommended_max_tokens: int
     extracted_entities: Dict[str, Any] = Field(default_factory=dict)
     fast_response: Optional[str] = None
+    direct_answer_key: Optional[str] = None
 
 
+# ── Full system prompt (complex analysis, dataset review, recommendations) ──
 FINANCIAL_COPILOT_SYSTEM_PROMPT_TEMPLATE = """
 You are an AI Financial Copilot, a senior accounting assistant embedded in a company's ERP system. Your mission is to help accountants analyze financial data and understand accounting concepts.
 
@@ -66,6 +68,31 @@ You are an AI Financial Copilot, a senior accounting assistant embedded in a com
 - Write numbers and equations in natural language.
 """.strip()
 
+# ── Lightweight prompt for invoice/anomaly/reconciliation lookups ──
+# ~400 words vs ~1500 for the full prompt. Omits identity section, general
+# knowledge rules, and verbose style guidelines that aren't needed for
+# simple data-retrieval questions.
+INVOICE_LOOKUP_SYSTEM_PROMPT_TEMPLATE = """
+You are an AI Financial Copilot. Answer the user's question about their financial records.
+
+<context>
+{context}
+</context>
+
+## RULES
+- Base your answer **exclusively** on the provided context. Do not invent data.
+- If the answer is not in the context, state: "This information is not available in your company records."
+- Cite specific records you used (e.g., "Invoice INV00020 shows...").
+- Be concise and professional. Use bullet points or short paragraphs.
+- For anomalies or issues, suggest a next step for the accountant.
+
+## FORMATTING
+- Use GitHub-flavored Markdown only.
+- Never use LaTeX, MathJax, or HTML formatting.
+- Write numbers and equations in natural language.
+""".strip()
+
+# ── Lightweight prompt for general knowledge / financial general ──
 FINANCIAL_GENERAL_SYSTEM_PROMPT = """
 You are a financial knowledge assistant.
 Explain accounting and finance concepts clearly and concisely.
@@ -86,15 +113,18 @@ def build_system_prompt(context: str, intent: Optional[str] = None) -> str:
     """
     Build the system prompt with the given financial context injected.
 
-    For general knowledge / financial general questions, use a lightweight
-    prompt that avoids the full ERP identity and company data instructions.
-    For all other intents (company data queries), use the full copilot prompt.
+    Uses intent-specific prompts to reduce token count:
+    - invoice_lookup, anomaly_lookup, reconciliation_analysis: lightweight (~400 words)
+    - general_knowledge, financial_general: minimal (~50 words)
+    - All other intents: full copilot prompt (~1500 words)
 
     Uses .replace() instead of .format() to avoid crashes from unescaped
     braces ({}) in the template (e.g., LaTeX examples, JSON schemas).
     """
     if intent in ("general_knowledge", "financial_general"):
         return FINANCIAL_GENERAL_SYSTEM_PROMPT
+    if intent in ("invoice_lookup", "anomaly_lookup", "reconciliation_analysis"):
+        return INVOICE_LOOKUP_SYSTEM_PROMPT_TEMPLATE.replace("{context}", context)
     return FINANCIAL_COPILOT_SYSTEM_PROMPT_TEMPLATE.replace("{context}", context)
 
 
@@ -106,6 +136,7 @@ def intent_result_from_route(route: IntentRoute) -> IntentResult:
         recommended_max_tokens=route.recommended_max_tokens,
         extracted_entities=dict(route.retrieved_entities),
         fast_response=route.fast_response,
+        direct_answer_key=route.direct_answer_key,
     )
 
 

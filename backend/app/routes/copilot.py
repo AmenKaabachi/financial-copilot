@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from typing import Optional
+from typing import Dict, Any, Optional
 
 import time
 import json
@@ -35,9 +35,64 @@ from app.services.analytics import (
     calculate_payment_statistics,
 )
 from app.services.llm.manager import get_all_health, MODEL_POOL_LABELS
+from app.services.timing import RequestMetrics
 
 router = APIRouter()
 classifier = IntentClassifier()
+
+
+# Direct-answer handler: maps keys from DIRECT_ANSWER_PATTERNS in routing.py
+# to database queries that return simple counts, skipping the LLM entirely.
+_DIRECT_ANSWER_HANDLERS = {
+    "count_invoices": lambda: len(get_dataset_summary()["invoices"]),
+    "count_transactions": lambda: len(get_dataset_summary()["transactions"]),
+    "count_anomalies": lambda: len(get_dataset_summary()["anomalies"]),
+    "count_high_severity": lambda: len(get_high_severity_anomalies(limit=10000)),
+    "count_duplicate": lambda: len(get_duplicate_payments(limit=10000)),
+    "count_missing": lambda: len(get_missing_payments(limit=10000)),
+    "count_reconciliations": lambda: len(get_dataset_summary()["reconciliations"]),
+}
+
+# Response templates keyed by direct_answer_key
+_DIRECT_ANSWER_TEMPLATES = {
+    "count_invoices": "There are **{count}** invoices in the system.",
+    "count_transactions": "There are **{count}** bank transactions recorded.",
+    "count_anomalies": "There are **{count}** anomalies detected.",
+    "count_high_severity": "There are **{count}** high-severity anomalies.",
+    "count_duplicate": "There are **{count}** duplicate payments identified.",
+    "count_missing": "There are **{count}** missing payments to investigate.",
+    "count_reconciliations": "There are **{count}** reconciliation records.",
+}
+
+
+def _handle_direct_answer(answer_key: str, metrics: RequestMetrics) -> Optional[Dict[str, Any]]:
+    """Execute a direct-answer query and return a response dict, or None if the key is unknown."""
+    handler = _DIRECT_ANSWER_HANDLERS.get(answer_key)
+    template = _DIRECT_ANSWER_TEMPLATES.get(answer_key)
+    if handler is None or template is None:
+        return None
+    try:
+        count = handler()
+        answer = template.format(count=count)
+        metrics.rows_retrieved = 1
+        return {
+            "answer": answer,
+            "model": "direct-query",
+            "tier": 0,
+            "fallback_used": False,
+            "response_time": 0.0,
+            "cached": False,
+            "pool": "Direct Query Pool",
+            "provider": "database",
+            "finish_reason": "stop",
+            "prompt_token_estimate": 0,
+            "completion_token_estimate": 0,
+            "total_token_estimate": 0,
+            "max_tokens": 0,
+        }
+    except Exception as e:
+        logger.error("Direct answer handler '%s' failed: %s", answer_key, e)
+        return None
 
 
 def _table(table: str):
@@ -279,11 +334,10 @@ def _build_context(question: str, intent_result, session_id: str = "default") ->
 
 @router.post("/chat")
 def chat(request: QuestionRequest):
-    print("1 - Request received")
-    t0 = time.perf_counter()
+    metrics = RequestMetrics.new()
     session_id = request.session_id or "default"
 
-    print("2 - Before intent detection")
+    metrics.begin_stage("Intent Classification")
     state = get_conversation_state(session_id)
     if state.active_intent and state.active_intent != "unknown":
         question_lower = request.question.lower().strip()
@@ -306,28 +360,51 @@ def chat(request: QuestionRequest):
         route = classifier.classify(request.question, session_id=session_id)
 
     intent_result = intent_result_from_route(route)
-    print("3 - Intent detected:", intent_result.intent.value)
-    t_class = time.perf_counter() - t0
+    metrics.intent = intent_result.intent.value
+    metrics.end_stage()
 
     if not intent_result.requires_llm:
+        # Check for direct-answer (SQL-only) queries first
+        if intent_result.direct_answer_key:
+            metrics.begin_stage("Direct Query")
+            direct_result = _handle_direct_answer(intent_result.direct_answer_key, metrics)
+            metrics.end_stage()
+            if direct_result is not None:
+                metrics.model = "direct-query"
+                metrics.provider = "database"
+                metrics.pool = "Direct Query Pool"
+                metrics.log_summary()
+                return {
+                    "question": request.question,
+                    "answer": direct_result["answer"],
+                    "model": "direct-query",
+                    "tier": 0,
+                    "fallback_used": False,
+                    "response_time": round(metrics.elapsed_since_start(), 3),
+                    "intent": intent_result.intent.value,
+                    "database_used": True,
+                    "cache_used": False,
+                    "pool": "Direct Query Pool",
+                    "provider": "database",
+                    "time_to_first_token_ms": 0,
+                    "request_id": metrics.request_id,
+                }
+
         response = _fast_conversational_response(intent_result)
         response["question"] = request.question
-        logger.info(
-            "Telemetry: intent=%s, database_query=No, rows_returned=0, prompt_size=0, selected_model=conversational, response_time=%.3f, cache_hit=No",
-            intent_result.intent.value,
-            response["response_time"],
-        )
+        response["request_id"] = metrics.request_id
+        metrics.log_summary()
         return response
 
-    t1 = time.perf_counter()
-    print("4 - Before context building")
+    metrics.begin_stage("Context Retrieval")
     context, database_used = _build_context(request.question, intent_result, session_id=session_id)
-    print("5 - Context built")
-    t_db = time.perf_counter() - t1
+    metrics.database_used = database_used
+    metrics.end_stage()
 
-    t2 = time.perf_counter()
+    metrics.begin_stage("Prompt Construction")
     prompt = build_user_prompt(context=context, question=request.question, intent=intent_result.intent)
-    t_prompt = time.perf_counter() - t2
+    metrics.prompt_size_chars = len(prompt)
+    metrics.end_stage()
 
     rows_retrieved = 0
     if isinstance(context, dict):
@@ -336,9 +413,10 @@ def chat(request: QuestionRequest):
                 rows_retrieved += len(value)
             elif value is not None:
                 rows_retrieved += 1
+    metrics.rows_retrieved = rows_retrieved
 
     try:
-        print("6 - Before LLM call")
+        metrics.begin_stage("LLM Generation")
         context_str = json.dumps(context, ensure_ascii=False) if context else ""
         result = generate_answer(
             prompt,
@@ -346,33 +424,29 @@ def chat(request: QuestionRequest):
             intent=intent_result.intent.value,
             context=context_str,
         )
-        print("7 - LLM finished")
+        metrics.end_stage()
     except AIServiceUnavailableError as exc:
+        metrics.error = "All models failed"
+        metrics.end_stage()
+        metrics.log_summary()
         raise HTTPException(
             status_code=503,
             detail="AI service temporarily unavailable. All models failed.",
         ) from exc
 
     result = dict(result)
-    result["response_time"] += (t_class + t_db + t_prompt)
+    metrics.model = result["model"]
+    metrics.provider = result.get("provider", "OpenRouter")
+    metrics.pool = result.get("pool", "unknown")
+    metrics.finish_reason = result.get("finish_reason", "stop")
+    metrics.cache_hit = result.get("cached", False)
+    metrics.fallback_used = result.get("fallback_used", False)
+    metrics.prompt_tokens = result.get("prompt_token_estimate", 0)
+    metrics.completion_tokens = result.get("completion_token_estimate", 0)
+    metrics.total_tokens = result.get("total_token_estimate", 0)
+    metrics.max_tokens = result.get("max_tokens", intent_result.recommended_max_tokens)
 
-    estimated_tokens = len(prompt) // 4
-
-    logger.info(
-        "Telemetry: intent=%s, database_query=%s, rows_returned=%s, prompt_size=%s, selected_model=%s, finish_reason=%s, max_tokens=%s, prompt_tokens~%s, completion_tokens~%s, total_tokens~%s, response_time=%s, cache_hit=%s",
-        intent_result.intent.value,
-        "Yes" if database_used else "No",
-        rows_retrieved,
-        len(prompt),
-        result["model"],
-        result.get("finish_reason", "unknown"),
-        result.get("max_tokens", intent_result.recommended_max_tokens),
-        result.get("prompt_token_estimate", 0),
-        result.get("completion_token_estimate", 0),
-        result.get("total_token_estimate", 0),
-        result["response_time"],
-        result["cached"],
-    )
+    metrics.log_summary()
 
     response = {
         "question": request.question,
@@ -386,7 +460,8 @@ def chat(request: QuestionRequest):
         "cache_used": result["cached"],
         "pool": result.get("pool", "unknown"),
         "provider": result.get("provider", "OpenRouter"),
-        "time_to_first_token_ms": 0,  # Non-streaming, no TTFT
+        "time_to_first_token_ms": 0,
+        "request_id": metrics.request_id,
     }
 
     _save_chat_history(
@@ -400,9 +475,10 @@ def chat(request: QuestionRequest):
 
 @router.post("/chat/stream")
 def chat_stream(request: QuestionRequest):
-    t0 = time.perf_counter()
+    metrics = RequestMetrics.new()
     session_id = request.session_id or "default"
 
+    metrics.begin_stage("Intent Classification")
     state = get_conversation_state(session_id)
     if state.active_intent and state.active_intent != "unknown":
         question_lower = request.question.lower().strip()
@@ -425,22 +501,104 @@ def chat_stream(request: QuestionRequest):
         route = classifier.classify(request.question, session_id=session_id)
 
     intent_result = intent_result_from_route(route)
-    t_class = time.perf_counter() - t0
+    metrics.intent = intent_result.intent.value
+    metrics.end_stage()
 
     if not intent_result.requires_llm:
+        # Check for direct-answer (SQL-only) queries first
+        if intent_result.direct_answer_key:
+            metrics.begin_stage("Direct Query")
+            direct_result = _handle_direct_answer(intent_result.direct_answer_key, metrics)
+            metrics.end_stage()
+            if direct_result is not None:
+                metrics.model = "direct-query"
+                metrics.provider = "database"
+                metrics.pool = "Direct Query Pool"
+                metrics.log_summary()
+                def _direct_answer_stream():
+                    yield f"data: {_json({'type': 'token', 'content': direct_result['answer']})}\n\n"
+                    yield f"data: {_json({'type': 'done', 'model': 'direct-query', 'provider': 'database', 'tier': 0, 'fallback_used': False, 'response_time': round(metrics.elapsed_since_start(), 3), 'intent': intent_result.intent.value, 'database_used': True, 'cache_used': False, 'pool': 'Direct Query Pool', 'request_id': metrics.request_id})}\n\n"
+                return StreamingResponse(_direct_answer_stream(), media_type="text/event-stream")
+
         def _conversational():
             yield f"data: {_json({'type': 'token', 'content': intent_result.fast_response})}\n\n"
             yield f"data: {_json({'type': 'metadata', 'model': 'conversational', 'provider': 'OpenRouter', 'time_to_first_token_ms': 0})}\n\n"
-            yield f"data: {_json({'type': 'done', 'model': 'conversational', 'provider': 'OpenRouter', 'tier': 0, 'fallback_used': False, 'response_time': round(t_class, 3), 'intent': intent_result.intent.value, 'database_used': False, 'cache_used': False, 'pool': 'Conversation Pool'})}\n\n"
+            yield f"data: {_json({'type': 'done', 'model': 'conversational', 'provider': 'OpenRouter', 'tier': 0, 'fallback_used': False, 'response_time': round(metrics.elapsed_since_start(), 3), 'intent': intent_result.intent.value, 'database_used': False, 'cache_used': False, 'pool': 'Conversation Pool', 'request_id': metrics.request_id})}\n\n"
         return StreamingResponse(_conversational(), media_type="text/event-stream")
 
-    t1 = time.perf_counter()
-    context, database_used = _build_context(request.question, intent_result, session_id=session_id)
-    t_db = time.perf_counter() - t1
+    # Intent-aware SSE status messages for immediate user feedback
+    _STATUS_MESSAGES = {
+        "invoice_lookup": [
+            "Searching invoice records...",
+            "Checking reconciliation...",
+            "Preparing invoice analysis...",
+        ],
+        "anomaly_lookup": [
+            "Finding anomaly records...",
+            "Analyzing financial impact...",
+            "Generating recommendations...",
+        ],
+        "dataset_review": [
+            "Loading dataset summary...",
+            "Computing statistics...",
+            "Preparing overview...",
+        ],
+        "reconciliation_analysis": [
+            "Checking reconciliation data...",
+            "Comparing ERP vs bank records...",
+            "Analyzing matches and mismatches...",
+        ],
+        "recommendations": [
+            "Gathering financial data...",
+            "Analyzing patterns...",
+            "Formulating recommendations...",
+        ],
+        "report_summary": [
+            "Loading report data...",
+            "Aggregating metrics...",
+            "Preparing summary...",
+        ],
+        "comparison": [
+            "Loading data for comparison...",
+            "Analyzing differences...",
+            "Preparing comparison...",
+        ],
+        "trend_analysis": [
+            "Loading historical data...",
+            "Analyzing trends...",
+            "Preparing trend analysis...",
+        ],
+        "financial_analysis": [
+            "Analyzing your financial data...",
+            "Processing context...",
+            "Generating analysis...",
+        ],
+        "general_knowledge": [
+            "Looking up accounting concepts...",
+            "Preparing explanation...",
+        ],
+        "financial_general": [
+            "Looking up financial concepts...",
+            "Preparing explanation...",
+        ],
+    }
 
-    t2 = time.perf_counter()
+    intent_name = intent_result.intent.value
+    status_messages = _STATUS_MESSAGES.get(intent_name, [
+        "Analyzing your question...",
+        "Searching financial records...",
+        "Generating analysis...",
+    ])
+
+    metrics.begin_stage("Context Retrieval")
+    context, database_used = _build_context(request.question, intent_result, session_id=session_id)
+    metrics.database_used = database_used
+    metrics.end_stage()
+
+    metrics.begin_stage("Prompt Construction")
     prompt = build_user_prompt(context=context, question=request.question, intent=intent_result.intent)
-    t_prompt = time.perf_counter() - t2
+    metrics.prompt_size_chars = len(prompt)
+    metrics.end_stage()
 
     rows_retrieved = 0
     if isinstance(context, dict):
@@ -449,16 +607,22 @@ def chat_stream(request: QuestionRequest):
                 rows_retrieved += len(v)
             elif v:
                 rows_retrieved += 1
+    metrics.rows_retrieved = rows_retrieved
 
-    overhead_time = t_class + t_db + t_prompt
+    overhead_time = metrics.get_stage_ms("Intent Classification") + metrics.get_stage_ms("Context Retrieval") + metrics.get_stage_ms("Prompt Construction")
     estimated_tokens = len(prompt) // 4
 
-    def _event_stream():
+    def _event_stream(metrics=metrics, overhead_time=overhead_time, status_messages=status_messages):
         full_answer = ""
         chunk_count = 0
         context_str = json.dumps(context, ensure_ascii=False) if context else ""
         metadata_emitted = False
         done_emitted = False
+
+        # Emit immediate SSE status events so the user sees progress before LLM starts
+        for msg in status_messages:
+            yield f"data: {_json({'type': 'status', 'message': msg})}\n\n"
+
         try:
             for chunk, meta in stream_answer(
                 prompt,
@@ -484,59 +648,34 @@ def chat_stream(request: QuestionRequest):
                     meta["database_used"] = database_used
                     meta["rows_retrieved"] = rows_retrieved
                     meta["prompt_size"] = len(prompt)
+                    meta["request_id"] = metrics.request_id
+
+                    # Populate metrics from final metadata
+                    metrics.model = meta.get("model", "")
+                    metrics.provider = meta.get("provider", "OpenRouter")
+                    metrics.pool = meta.get("pool", "")
+                    metrics.finish_reason = meta.get("finish_reason", "")
+                    metrics.cache_hit = meta.get("cached", False)
+                    metrics.fallback_used = meta.get("fallback_used", False)
+                    metrics.prompt_tokens = meta.get("prompt_token_estimate", 0)
+                    metrics.completion_tokens = meta.get("completion_token_estimate", 0)
+                    metrics.total_tokens = meta.get("total_token_estimate", 0)
+                    metrics.max_tokens = meta.get("max_tokens", 0)
 
                     # Check for error metadata — still emit as done so frontend gets model info
                     if meta.get("error"):
+                        metrics.error = meta.get("message", "Unknown error")
+                        metrics.log_summary()
                         logger.info(
                             "[SSE DIAGNOSTIC] Metadata indicates error (no model fallback available). "
                             "error=%s | chunks_streamed=%s | chars_streamed=%s",
                             meta.get("message"), chunk_count, len(full_answer),
                         )
-                        yield f"data: {_json({'type': 'done', 'error': True, 'message': meta.get('message', 'Unknown error')})}\n\n"
+                        yield f"data: {_json({'type': 'done', 'error': True, 'message': meta.get('message', 'Unknown error'), 'request_id': metrics.request_id})}\n\n"
                         done_emitted = True
                         return
 
-                    logger.info(
-                        "=== Stream Request Trace ===\n"
-                        "Question: %s\n"
-                        "Intent: %s\n"
-                        "Need DB: %s\n"
-                        "Extracted entities: %s\n"
-                        "Rows returned: %s\n"
-                        "Prompt size: %s chars (~%s tokens)\n"
-                        "Model pool selected: %s\n"
-                        "Chosen model: %s\n"
-                        "Fallback used: %s\n"
-                        "Max tokens: %s\n"
-                        "Finish reason: %s\n"
-                        "Prompt tokens~: %s\n"
-                        "Completion tokens~: %s\n"
-                        "Total tokens~: %s\n"
-                        "Response time: %ss\n"
-                        "Cache hit: %s\n"
-                        "Chunks streamed: %s\n"
-                        "Chars streamed: %s\n"
-                        "=============================",
-                        request.question,
-                        intent_result.intent.value,
-                        database_used,
-                        intent_result.extracted_entities,
-                        rows_retrieved,
-                        len(prompt),
-                        estimated_tokens,
-                        meta.get("pool", "unknown"),
-                        meta.get("model", "unknown"),
-                        meta.get("fallback_used", False),
-                        meta.get("max_tokens", intent_result.recommended_max_tokens),
-                        meta.get("finish_reason", "unknown"),
-                        meta.get("prompt_token_estimate", 0),
-                        meta.get("completion_token_estimate", 0),
-                        meta.get("total_token_estimate", 0),
-                        meta.get("response_time", 0),
-                        meta.get("cached", False),
-                        chunk_count,
-                        len(full_answer),
-                    )
+                    metrics.log_summary()
 
                     full_answer = meta.get("answer", full_answer)
                     done_emitted = True
@@ -552,7 +691,9 @@ def chat_stream(request: QuestionRequest):
                 ai_response=full_answer.strip(),
             )
         except AIServiceUnavailableError:
-            yield f"data: {_json({'type': 'error', 'message': 'AI service temporarily unavailable. All models failed.'})}\n\n"
+            metrics.error = "All models failed"
+            metrics.log_summary()
+            yield f"data: {_json({'type': 'error', 'message': 'AI service temporarily unavailable. All models failed.', 'request_id': metrics.request_id})}\n\n"
 
     return StreamingResponse(_event_stream(), media_type="text/event-stream")
 

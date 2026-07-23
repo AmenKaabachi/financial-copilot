@@ -41,6 +41,7 @@ class IntentRoute:
     recommended_max_tokens: int
     fast_response: Optional[str] = None
     retrieved_entities: Dict[str, str] = field(default_factory=dict)
+    direct_answer_key: Optional[str] = None  # Key into DIRECT_ANSWER_PATTERNS for SQL-only responses
 
 
 GREETING_RESPONSE = (
@@ -171,6 +172,22 @@ DATASET_REVIEW_PATTERNS = (
     r"\banalyze\s+my\s+data\b",
     r"\breview\s+the\s+dataset\b",
 )
+
+# Direct-answer patterns — simple factual questions that can be answered
+# with a SQL query, skipping the LLM entirely.
+# Each pattern maps to a (intent, response_template) where the template
+# uses {count} or similar placeholders.
+DIRECT_ANSWER_PATTERNS = {
+    r"\bhow\s+many\s+invoices?\s+(?:are\s+there|exist|do\s+we\s+have)\b": ("count_invoices", "There are **{count}** invoices in the system."),
+    r"\bhow\s+many\s+transactions?\s+(?:are\s+there|exist|do\s+we\s+have)\b": ("count_transactions", "There are **{count}** bank transactions recorded."),
+    r"\bhow\s+many\s+anomal(?:y|ies)\s+(?:are\s+there|exist|do\s+we\s+have)\b": ("count_anomalies", "There are **{count}** anomalies detected."),
+    r"\btotal\s+(?:number\s+of\s+)?invoices?\b": ("count_invoices", "There are **{count}** invoices in total."),
+    r"\btotal\s+(?:number\s+of\s+)?anomal(?:y|ies)\b": ("count_anomalies", "There are **{count}** anomalies in total."),
+    r"\bhow\s+many\s+high\s+severity\s+anomal(?:y|ies)\b": ("count_high_severity", "There are **{count}** high-severity anomalies."),
+    r"\bhow\s+many\s+duplicate\s+payments?\b": ("count_duplicate", "There are **{count}** duplicate payments identified."),
+    r"\bhow\s+many\s+missing\s+payments?\b": ("count_missing", "There are **{count}** missing payments to investigate."),
+    r"\b(reconciliation|reconciliations?)\s+(?:count|total|number)\b": ("count_reconciliations", "There are **{count}** reconciliation records."),
+}
 
 TREND_PATTERNS = (
     r"\btrend\b",
@@ -336,6 +353,18 @@ class IntentClassifier:
             IntentType.FINANCIAL_ANALYSIS: _keyword_score(tokens, ("why", "analyze", "investigate", "explain", "missing", "high", "severity", "issue")),
             IntentType.GENERAL_KNOWLEDGE: _regex_score(message_clean, GENERAL_KNOWLEDGE_PATTERNS),
         }
+
+        # Check for direct-answer patterns first (simple factual queries that skip LLM entirely)
+        for pattern, (answer_key, _) in DIRECT_ANSWER_PATTERNS.items():
+            if re.search(pattern, message_clean, re.IGNORECASE):
+                return IntentRoute(
+                    intent=IntentType.FINANCIAL_ANALYSIS,
+                    requires_llm=False,
+                    needs_database=True,
+                    recommended_max_tokens=0,
+                    retrieved_entities=entities,
+                    direct_answer_key=answer_key,
+                )
 
         if not message_clean:
             return IntentRoute(

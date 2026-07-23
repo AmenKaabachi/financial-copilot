@@ -22,68 +22,66 @@ class ModelTier:
 # Medium models: nvidia/nemotron-3-nano-omni-30b-a3b-reasoning, nvidia/nemotron-3-nano-30b-a3b
 # Slow models: nvidia/nemotron-nano-9b-v2, google/gemma-4-31b-it, nvidia/nemotron-3-ultra-550b-a55b, nvidia/nemotron-3-super-120b-a12b
 
-CONVERSATION_POOL: List[ModelConfig] = [
+# ── Fastest models only (tier 1) ──
+# Used for: simple lookups, definitions, greetings
+FAST_POOL: List[ModelConfig] = [
+    ModelConfig(name="openai/gpt-oss-20b:free", tier=1, enabled=True),
+    ModelConfig(name="google/gemma-4-26b-a4b-it:free", tier=1, enabled=True),
+    ModelConfig(name="poolside/laguna-xs-2.1:free", tier=1, enabled=True),
+]
+
+# ── Fast + medium models (tiers 1-2) ──
+# Used for: invoice/anomaly lookups, reconciliation analysis, comparisons
+MEDIUM_POOL: List[ModelConfig] = [
     ModelConfig(name="openai/gpt-oss-20b:free", tier=1, enabled=True),
     ModelConfig(name="google/gemma-4-26b-a4b-it:free", tier=1, enabled=True),
     ModelConfig(name="poolside/laguna-xs-2.1:free", tier=1, enabled=True),
     ModelConfig(name="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", tier=2, enabled=True),
     ModelConfig(name="nvidia/nemotron-3-nano-30b-a3b:free", tier=2, enabled=True),
-    ModelConfig(name="nvidia/nemotron-nano-9b-v2:free", tier=3, enabled=True),
 ]
 
-# Dedicated pool for simple accounting definitions ("what is X", "explain Y").
-# Only the fastest models - no slow reasoning models needed for basic concepts.
-ACCOUNTING_KNOWLEDGE_POOL: List[ModelConfig] = [
-    ModelConfig(name="openai/gpt-oss-20b:free", tier=1, enabled=True),
-    ModelConfig(name="google/gemma-4-26b-a4b-it:free", tier=1, enabled=True),
-    ModelConfig(name="poolside/laguna-xs-2.1:free", tier=1, enabled=True),
-]
-
-GENERAL_KNOWLEDGE_POOL: List[ModelConfig] = [
+# ── All models including large reasoning models (tiers 1-3) ──
+# Used for: dataset review, report summary, recommendations, complex analysis
+FULL_POOL: List[ModelConfig] = [
     ModelConfig(name="openai/gpt-oss-20b:free", tier=1, enabled=True),
     ModelConfig(name="google/gemma-4-26b-a4b-it:free", tier=1, enabled=True),
     ModelConfig(name="poolside/laguna-xs-2.1:free", tier=1, enabled=True),
     ModelConfig(name="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", tier=2, enabled=True),
     ModelConfig(name="nvidia/nemotron-3-nano-30b-a3b:free", tier=2, enabled=True),
-    ModelConfig(name="nvidia/nemotron-nano-9b-v2:free", tier=3, enabled=True),
-]
-
-FINANCIAL_ANALYSIS_POOL: List[ModelConfig] = [
-    ModelConfig(name="openai/gpt-oss-20b:free", tier=1, enabled=True),
-    ModelConfig(name="google/gemma-4-26b-a4b-it:free", tier=1, enabled=True),
-    ModelConfig(name="poolside/laguna-xs-2.1:free", tier=1, enabled=True),
-    ModelConfig(name="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", tier=2, enabled=True),
-    ModelConfig(name="google/gemma-4-31b-it:free", tier=2, enabled=True),
+    ModelConfig(name="nvidia/nemotron-nano-9b-v2:free", tier=2, enabled=True),
+    ModelConfig(name="google/gemma-4-31b-it:free", tier=3, enabled=True),
     ModelConfig(name="nvidia/nemotron-3-ultra-550b-a55b:free", tier=3, enabled=True),
     ModelConfig(name="nvidia/nemotron-3-super-120b-a12b:free", tier=3, enabled=True),
 ]
 
-REASONING_POOL: List[ModelConfig] = [
-    ModelConfig(name="openai/gpt-oss-20b:free", tier=1, enabled=True),
-    ModelConfig(name="google/gemma-4-26b-a4b-it:free", tier=1, enabled=True),
-    ModelConfig(name="poolside/laguna-xs-2.1:free", tier=1, enabled=True),
-    ModelConfig(name="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", tier=2, enabled=True),
-    ModelConfig(name="google/gemma-4-31b-it:free", tier=2, enabled=True),
-    ModelConfig(name="nvidia/nemotron-3-ultra-550b-a55b:free", tier=3, enabled=True),
-    ModelConfig(name="nvidia/nemotron-3-super-120b-a12b:free", tier=3, enabled=True),
-]
+# Backward-compatible aliases
+CONVERSATION_POOL = FAST_POOL
+ACCOUNTING_KNOWLEDGE_POOL = FAST_POOL
+GENERAL_KNOWLEDGE_POOL = MEDIUM_POOL
+FINANCIAL_ANALYSIS_POOL = FULL_POOL
+REASONING_POOL = FULL_POOL
 
 ALL_MODELS: List[ModelConfig] = list({
-    m.name: m for pool in [CONVERSATION_POOL, ACCOUNTING_KNOWLEDGE_POOL, GENERAL_KNOWLEDGE_POOL, FINANCIAL_ANALYSIS_POOL, REASONING_POOL]
+    m.name: m for pool in [FAST_POOL, MEDIUM_POOL, FULL_POOL]
     for m in pool
 }.values())
 
 
+# Intent-to-pool mapping: simple lookups use fast models,
+# analysis/review use medium, complex synthesis uses full pool.
 MODEL_ROUTING = {
-    "INVOICE_LOOKUP": ["google/gemma-4-31b-it:free", "google/gemma-4-26b-a4b-it:free", "openai/gpt-oss-20b:free"],
-    "ANOMALY_LOOKUP": ["google/gemma-4-31b-it:free", "nvidia/nemotron-3-ultra-550b-a55b:free", "openai/gpt-oss-20b:free"],
-    "RECONCILIATION_ANALYSIS": ["google/gemma-4-31b-it:free", "nvidia/nemotron-3-ultra-550b-a55b:free", "openai/gpt-oss-20b:free"],
-    "DATASET_REVIEW": ["nvidia/nemotron-3-ultra-550b-a55b:free", "openai/gpt-oss-20b:free", "google/gemma-4-31b-it:free"],
-    "REPORT_SUMMARY": ["nvidia/nemotron-3-ultra-550b-a55b:free", "openai/gpt-oss-20b:free", "google/gemma-4-31b-it:free"],
-    "FINANCIAL_ANALYSIS": ["openai/gpt-oss-20b:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "google/gemma-4-31b-it:free"],
-    "TREND_ANALYSIS": ["openai/gpt-oss-20b:free", "google/gemma-4-31b-it:free", "nvidia/nemotron-3-ultra-550b-a55b:free"],
-    "COMPARISON": ["openai/gpt-oss-20b:free", "google/gemma-4-31b-it:free", "nvidia/nemotron-3-ultra-550b-a55b:free"],
-    "RECOMMENDATIONS": ["openai/gpt-oss-20b:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "google/gemma-4-31b-it:free"],
+    # Simple lookups — fast models only (tier 1)
+    "INVOICE_LOOKUP": ["openai/gpt-oss-20b:free", "google/gemma-4-26b-a4b-it:free", "poolside/laguna-xs-2.1:free"],
+    "ANOMALY_LOOKUP": ["openai/gpt-oss-20b:free", "google/gemma-4-26b-a4b-it:free", "poolside/laguna-xs-2.1:free"],
+    # Medium complexity — fast + medium models (tiers 1-2)
+    "RECONCILIATION_ANALYSIS": ["openai/gpt-oss-20b:free", "google/gemma-4-26b-a4b-it:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"],
+    "COMPARISON": ["openai/gpt-oss-20b:free", "google/gemma-4-26b-a4b-it:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"],
+    "TREND_ANALYSIS": ["openai/gpt-oss-20b:free", "google/gemma-4-26b-a4b-it:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"],
+    # Complex analysis — full pool (tiers 1-3)
+    "FINANCIAL_ANALYSIS": ["openai/gpt-oss-20b:free", "google/gemma-4-26b-a4b-it:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "google/gemma-4-31b-it:free"],
+    "DATASET_REVIEW": ["openai/gpt-oss-20b:free", "google/gemma-4-26b-a4b-it:free", "nvidia/nemotron-3-ultra-550b-a55b:free", "google/gemma-4-31b-it:free"],
+    "REPORT_SUMMARY": ["openai/gpt-oss-20b:free", "google/gemma-4-26b-a4b-it:free", "nvidia/nemotron-3-ultra-550b-a55b:free", "google/gemma-4-31b-it:free"],
+    "RECOMMENDATIONS": ["openai/gpt-oss-20b:free", "google/gemma-4-26b-a4b-it:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "google/gemma-4-31b-it:free"],
 }
 
 
