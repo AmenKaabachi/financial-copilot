@@ -1,0 +1,10 @@
+/.kilo
+/.vscode
+/datasets
+.env
+backend/.env
+frontend/.env
+venv/
+node_modules/
+dist/
+__pycache__/

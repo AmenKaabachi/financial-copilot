@@ -1,0 +1,96 @@
+[
+  {
+    "id": "invoice_analysis_001",
+    "question": "Explain invoice INV00020",
+    "expected_intent": "invoice_lookup",
+    "expected_entities": {"invoice_id": "INV00020"},
+    "description": "Should classify as invoice lookup and retrieve invoice data"
+  },
+  {
+    "id": "invoice_analysis_002",
+    "question": "Continue the analysis",
+    "expected_intent": "financial_analysis",
+    "description": "Without conversation context, continuation defaults to general financial analysis"
+  },
+  {
+    "id": "dataset_review_001",
+    "question": "Review my financial data",
+    "expected_intent": "dataset_review",
+    "description": "Should classify as dataset review and return executive summary"
+  },
+  {
+    "id": "reconciliation_001",
+    "question": "Analyze reconciliation results",
+    "expected_intent": "reconciliation_analysis",
+    "description": "Should classify as reconciliation analysis"
+  },
+  {
+    "id": "anomaly_lookup_001",
+    "question": "Explain anomaly ANM00010",
+    "expected_intent": "anomaly_lookup",
+    "expected_entities": {"anomaly_id": "ANM00010"},
+    "description": "Should classify as anomaly lookup"
+  },
+  {
+    "id": "recommendations_001",
+    "question": "What should I do next?",
+    "expected_intent": "recommendations",
+    "description": "Should classify as recommendations"
+  },
+  {
+    "id": "source_transparency_check",
+    "description": "System prompt should include source transparency instructions",
+    "test_type": "unit",
+    "module": "app.services.llm.prompts",
+    "function": "FINANCIAL_COPILOT_SYSTEM_PROMPT",
+    "expected_output": {
+      "contains_keywords": ["Data Sources Used", "origin of financial facts"]
+    }
+  },
+  {
+    "id": "severity_calculation_001",
+    "description": "PAYMENT_SHORTFALL severity should be calculated based on percentage difference",
+    "test_type": "unit",
+    "module": "app.services.analytics",
+    "function": "calculate_severity",
+    "inputs": {
+      "invoice": {"amount": 1000.0, "status": "PENDING"},
+      "transactions": [{"amount": 920.0}],
+      "reconciliation": {"status": "MATCHED"}
+    },
+    "expected_output": {"severity": "MEDIUM", "difference_percentage": 0.08}
+  },
+  {
+    "id": "risk_score_001",
+    "description": "Risk score should accumulate from multiple risk factors",
+    "test_type": "unit",
+    "module": "app.services.analytics",
+    "function": "calculate_risk_score",
+    "inputs": {
+      "invoice": {"amount": 1000.0, "status": "PAID"},
+      "transactions": [{"amount": 600.0}],
+      "reconciliation": {"status": "FAILED"}
+    },
+    "expected_output": {
+      "risk_score": 90,
+      "risk_level": "HIGH"
+    }
+  },
+  {
+    "id": "recommendations_001",
+    "description": "Should generate recommendations from financial data",
+    "test_type": "unit",
+    "module": "app.services.analytics",
+    "function": "generate_recommendations",
+    "inputs": {
+      "invoice": {"amount": 1000.0, "status": "PAID"},
+      "transactions": [{"amount": 600.0}],
+      "reconciliation": {"status": "FAILED"},
+      "risk": {"risk_score": 70, "risk_level": "HIGH", "risk_reasons": ["Severe payment mismatch"]}
+    },
+    "expected_output": {
+      "min_items": 1,
+      "contains_keywords": ["payment", "escalate"]
+    }
+  }
+]

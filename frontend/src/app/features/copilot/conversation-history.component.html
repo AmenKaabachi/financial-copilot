@@ -1,0 +1,77 @@
+<div class="history-overlay" *ngIf="isPanelOpen" (click)="closePanelDirect()">
+  <div class="history-panel" (click)="$event.stopPropagation()">
+    <div class="history-panel-header">
+      <h3>Conversation History</h3>
+      <button class="close-btn" (click)="closePanelDirect()" aria-label="Close history">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"/>
+          <line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="history-search">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="8"/>
+        <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+      </svg>
+      <input
+        type="text"
+        class="history-search-input"
+        [(ngModel)]="searchQuery"
+        placeholder="Search conversations..."
+      />
+      <button class="history-search-clear" *ngIf="searchQuery" (click)="searchQuery = ''" aria-label="Clear search">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"/>
+          <line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="history-panel-body">
+      <div class="history-list" *ngIf="!isLoadingConversations && filteredConversations.length > 0">
+        <app-conversation-item
+          *ngFor="let conversation of filteredConversations"
+          [conversation]="conversation"
+          [isActive]="conversation.id === activeConversationId"
+          (select)="selectConversation($event)"
+          (deleted)="onConversationDeleted($event)"
+          (renamed)="onConversationRenamed($event)"
+        />
+      </div>
+
+      <div class="history-empty" *ngIf="!isLoadingConversations && filteredConversations.length === 0 && conversations.length > 0">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"/>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        <p>No conversations match your search.</p>
+        <p class="history-empty-hint">Try a different search term.</p>
+      </div>
+
+      <div class="history-empty" *ngIf="!isLoadingConversations && conversations.length === 0">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <polyline points="12 6 12 12 16 14"/>
+        </svg>
+        <p>No conversations yet.</p>
+        <p class="history-empty-hint">Start a new conversation to see it here.</p>
+      </div>
+
+      <div class="history-loading" *ngIf="isLoadingConversations">
+        <div class="loading-spinner"></div>
+        <p>Loading conversations...</p>
+      </div>
+    </div>
+
+    <div class="history-error" *ngIf="errorMessage">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/>
+        <line x1="12" y1="8" x2="12" y2="12"/>
+        <line x1="12" y1="16" x2="12.01" y2="16"/>
+      </svg>
+      {{ errorMessage }}
+    </div>
+  </div>
+</div>
