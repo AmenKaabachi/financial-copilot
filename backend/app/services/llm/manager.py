@@ -108,6 +108,7 @@ class GenerateAnswerResult(TypedDict):
     response_time: float
     cached: bool
     pool: str
+    provider: str
     finish_reason: str
     prompt_token_estimate: int
     completion_token_estimate: int
@@ -124,6 +125,7 @@ class StreamMetadata(TypedDict):
     response_time: float
     cached: bool
     pool: str
+    provider: str
     finish_reason: str
     prompt_token_estimate: int
     completion_token_estimate: int
@@ -696,8 +698,16 @@ def stream_answer(prompt: str, max_tokens: int = 900, intent: str = "unknown", c
                     if not first_token_recorded and chunk:
                         first_token_recorded = True
                         stream_started = True  # ⬅️ LOCK THE STREAM — no fallback after this point
-                        time_to_first_token = round(time.perf_counter() - start_time, 2)
-                        logger.info("Stream started from model %s (time_to_first_token=%ss)", model.name, time_to_first_token)
+                        time_to_first_token_sec = time.perf_counter() - start_time
+                        time_to_first_token_ms = round(time_to_first_token_sec * 1000)
+                        logger.info("Stream started from model %s (time_to_first_token=%sms)", model.name, time_to_first_token_ms)
+                        # Emit dedicated metadata event BEFORE first content token
+                        yield ("", {
+                            "type": "metadata",
+                            "model": model.name,
+                            "provider": "OpenRouter",
+                            "time_to_first_token_ms": time_to_first_token_ms,
+                        })
                     collected.append(chunk)
                     yield chunk, None
             except Exception as error:
@@ -771,7 +781,7 @@ def stream_answer(prompt: str, max_tokens: int = 900, intent: str = "unknown", c
                 total_token_estimate = prompt_token_estimate + completion_token_estimate
             output_tokens = len(full_response.split())
             logger.info(
-                "Model=%s | Intent=%s | max_tokens=%s | finish_reason=%s | prompt_tokens~%s | completion_tokens~%s | total_tokens~%s | first_token=%ss | total_time=%ss | output_tokens=%s",
+                "Model=%s | Intent=%s | max_tokens=%s | finish_reason=%s | prompt_tokens~%s | completion_tokens~%s | total_tokens~%s | first_token=%sms | total_time=%ss | output_tokens=%s",
                 model.name,
                 intent,
                 max_tokens,
@@ -779,7 +789,7 @@ def stream_answer(prompt: str, max_tokens: int = 900, intent: str = "unknown", c
                 prompt_token_estimate,
                 completion_token_estimate,
                 total_token_estimate,
-                time_to_first_token if 'time_to_first_token' in dir() else response_time,
+                time_to_first_token_ms if 'time_to_first_token_ms' in dir() else int(response_time * 1000),
                 response_time,
                 output_tokens,
             )
@@ -948,6 +958,7 @@ def generate_answer(prompt: str, max_tokens: int = 900, intent: str = "unknown",
                             "response_time": response_time,
                             "cached": False,
                             "pool": MODEL_POOL_LABELS.get(pool, pool),
+                            "provider": "OpenRouter",
                             "finish_reason": finish_reason or "stop",
                             "prompt_token_estimate": prompt_token_estimate,
                             "completion_token_estimate": completion_token_estimate,

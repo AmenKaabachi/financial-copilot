@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MarkdownModule } from 'ngx-markdown';
 import { CopilotService } from '../../core/services/copilot.service';
-import { CopilotResponse } from '../../core/models/copilot.models';
+import { CopilotResponse, ResponseMetadata } from '../../core/models/copilot.models';
 import { ConversationService } from '../../core/services/conversation.service';
 import { Conversation, Message } from '../../core/models/conversation.models';
 import { NewConversationButtonComponent } from './new-conversation-button.component';
@@ -16,9 +16,12 @@ interface ChatMessage {
   tier?: number;
   fallbackUsed?: boolean;
   responseTime?: number;
+  timeToFirstTokenMs?: number;
+  provider?: string;
   streaming?: boolean;
   timestamp?: Date;
   warningMessage?: string;
+  responseMetadata?: ResponseMetadata;
 }
 
 @Component({
@@ -304,6 +307,17 @@ export class CopilotComponent implements OnInit {
           if (this.isNearBottom()) {
             this.scrollToBottom(true);
           }
+        } else if (event.type === 'metadata') {
+          // Store metadata on the current AI message for display
+          aiMessage.provider = event.provider || 'OpenRouter';
+          aiMessage.timeToFirstTokenMs = event.time_to_first_token_ms ?? undefined;
+          aiMessage.model = event.model || aiMessage.model;
+          aiMessage.responseMetadata = {
+            model: event.model || 'unknown',
+            provider: event.provider || 'OpenRouter',
+            time_to_first_token_ms: event.time_to_first_token_ms ?? 0,
+            finish_reason: event['finish_reason'] as string | undefined,
+          };
         } else if (event.type === 'warning') {
           aiMessage.warningMessage = event.message || 'Response shortened. Ask "continue" to complete the analysis.';
           if (this.isNearBottom()) {
@@ -311,20 +325,32 @@ export class CopilotComponent implements OnInit {
           }
         } else if (event.type === 'done') {
           // Use fallback defaults if metadata fields are missing
-          aiMessage.model = event.model || 'unknown';
+          aiMessage.model = event.model || aiMessage.model || 'unknown';
           aiMessage.tier = event.tier;
           aiMessage.fallbackUsed = event.fallback_used ?? false;
           aiMessage.responseTime = event.response_time ?? 0;
+          aiMessage.provider = event.provider || aiMessage.provider || 'OpenRouter';
+          aiMessage.timeToFirstTokenMs = event.time_to_first_token_ms ?? aiMessage.timeToFirstTokenMs ?? undefined;
           aiMessage.streaming = false;
           aiMessage.timestamp = new Date();
+          // Ensure responseMetadata is populated
+          if (!aiMessage.responseMetadata) {
+            aiMessage.responseMetadata = {
+              model: aiMessage.model || 'unknown',
+              provider: aiMessage.provider || 'OpenRouter',
+              time_to_first_token_ms: aiMessage.timeToFirstTokenMs ?? 0,
+              finish_reason: event['finish_reason'] as string | undefined,
+            };
+          }
           this.scrollToBottom(true);
           this.loadConversations();
           console.log('[Copilot] Stream complete:', {
             model: aiMessage.model,
+            provider: aiMessage.provider,
             fallback: aiMessage.fallbackUsed,
             response_time: aiMessage.responseTime,
+            ttft_ms: aiMessage.timeToFirstTokenMs,
             response_length: aiMessage.content.length,
-            metadata_emitted: event.model !== undefined || event.response_time !== undefined
           });
         }
       },

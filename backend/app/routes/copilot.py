@@ -71,6 +71,8 @@ def _fast_conversational_response(intent_result):
         "database_used": False,
         "cache_used": False,
         "pool": "Conversation Pool",
+        "provider": "rule-based",
+        "time_to_first_token_ms": 0,
     }
 
 
@@ -383,6 +385,8 @@ def chat(request: QuestionRequest):
         "database_used": database_used,
         "cache_used": result["cached"],
         "pool": result.get("pool", "unknown"),
+        "provider": result.get("provider", "OpenRouter"),
+        "time_to_first_token_ms": 0,  # Non-streaming, no TTFT
     }
 
     _save_chat_history(
@@ -426,7 +430,8 @@ def chat_stream(request: QuestionRequest):
     if not intent_result.requires_llm:
         def _conversational():
             yield f"data: {_json({'type': 'token', 'content': intent_result.fast_response})}\n\n"
-            yield f"data: {_json({'type': 'done', 'model': 'conversational', 'tier': 0, 'fallback_used': False, 'response_time': round(t_class, 3), 'intent': intent_result.intent.value, 'database_used': False, 'cache_used': False, 'pool': 'Conversation Pool'})}\n\n"
+            yield f"data: {_json({'type': 'metadata', 'model': 'conversational', 'provider': 'OpenRouter', 'time_to_first_token_ms': 0})}\n\n"
+            yield f"data: {_json({'type': 'done', 'model': 'conversational', 'provider': 'OpenRouter', 'tier': 0, 'fallback_used': False, 'response_time': round(t_class, 3), 'intent': intent_result.intent.value, 'database_used': False, 'cache_used': False, 'pool': 'Conversation Pool'})}\n\n"
         return StreamingResponse(_conversational(), media_type="text/event-stream")
 
     t1 = time.perf_counter()
@@ -462,6 +467,12 @@ def chat_stream(request: QuestionRequest):
                 context=context_str,
             ):
                 if meta is not None:
+                    # Handle dedicated metadata event (type: "metadata")
+                    if meta.get("type") == "metadata":
+                        logger.info("[SSE] Emitting metadata event: model=%s, ttft=%s", meta.get("model"), meta.get("time_to_first_token_ms"))
+                        yield f"data: {_json(meta)}\n\n"
+                        continue
+
                     if meta.get("type") == "warning":
                         logger.info("[SSE DIAGNOSTIC] Emitting warning event: %s", meta.get("message"))
                         yield f"data: {_json(meta)}\n\n"

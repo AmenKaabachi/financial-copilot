@@ -3,16 +3,20 @@ import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Observable, throwError } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { environment } from '../../../environments/environment';
-import { CopilotRequest, CopilotResponse } from '../models/copilot.models';
+import { CopilotRequest, CopilotResponse, ResponseMetadata } from '../models/copilot.models';
 
 export interface CopilotStreamEvent {
-  type: 'token' | 'done' | 'error' | 'warning';
+  type: 'token' | 'done' | 'error' | 'warning' | 'metadata';
   content?: string;
   model?: string;
   tier?: number;
   fallback_used?: boolean;
   response_time?: number;
   message?: string;
+  provider?: string;
+  time_to_first_token_ms?: number;
+  metadata?: ResponseMetadata;
+  [key: string]: unknown;
 }
 
 @Injectable({

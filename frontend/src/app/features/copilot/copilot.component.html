@@ -2,12 +2,21 @@
   <!-- ====== ZONE 1: Header Strip ====== -->
   <header class="chat-header">
     <div class="bot-avatar">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-        <rect x="3" y="8" width="18" height="12" rx="3"/>
-        <circle cx="9" cy="14" r="1.5"/>
-        <circle cx="15" cy="14" r="1.5"/>
-        <path d="M12 2v6"/>
-        <circle cx="12" cy="2" r="1"/>
+      <svg
+        width="22"
+        height="22"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.5"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <rect x="3" y="8" width="18" height="12" rx="3" />
+        <circle cx="9" cy="14" r="1.5" />
+        <circle cx="15" cy="14" r="1.5" />
+        <path d="M12 2v6" />
+        <circle cx="12" cy="2" r="1" />
       </svg>
     </div>
     <div class="chat-header-text">
@@ -21,11 +30,29 @@
     </div>
 
     <div class="header-actions">
-      <app-new-conversation-button (conversationCreated)="onConversationCreated($event)" [showLabel]="true" />
-      <button class="history-btn" (click)="toggleHistoryPanel()" [class.active]="historyPanelOpen" title="Conversation History" aria-label="Open conversation history">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="10"/>
-          <polyline points="12 6 12 12 16 14"/>
+      <app-new-conversation-button
+        (conversationCreated)="onConversationCreated($event)"
+        [showLabel]="true"
+      />
+      <button
+        class="history-btn"
+        (click)="toggleHistoryPanel()"
+        [class.active]="historyPanelOpen"
+        title="Conversation History"
+        aria-label="Open conversation history"
+      >
+        <svg
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <circle cx="12" cy="12" r="10" />
+          <polyline points="12 6 12 12 16 14" />
         </svg>
       </button>
     </div>
@@ -35,14 +62,21 @@
   <app-conversation-history
     [isPanelOpen]="historyPanelOpen"
     [activeConversationId]="conversationId"
-    (conversationSelected)="loadConversationMessages($event.conversationId, $event.messages)"
+    (conversationSelected)="
+      loadConversationMessages($event.conversationId, $event.messages)
+    "
     (conversationDeleted)="onConversationDeleted($event)"
     (conversationRenamed)="onConversationRenamed($event)"
     (closePanel)="closeHistoryPanel()"
   />
 
   <!-- ====== ZONE 2: Message Thread ====== -->
-  <div class="chat-scroll" #chatScroll (scroll)="onChatScroll()" *ngIf="messages.length; else welcome">
+  <div
+    class="chat-scroll"
+    #chatScroll
+    (scroll)="onChatScroll()"
+    *ngIf="messages.length; else welcome"
+  >
     <div class="chat-history">
       <div
         *ngFor="let message of messages; let i = index"
@@ -51,52 +85,130 @@
         [class.ai-row]="message.role === 'ai'"
       >
         <!-- Avatar -->
-        <div class="msg-avatar" [class.ai-msg-avatar]="message.role === 'ai'" [class.user-msg-avatar]="message.role === 'user'">
-          <svg *ngIf="message.role === 'ai'" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="8" width="18" height="12" rx="3"/><circle cx="9" cy="14" r="1.5"/><circle cx="15" cy="14" r="1.5"/><path d="M12 2v6"/><circle cx="12" cy="2" r="1"/>
+        <div
+          class="msg-avatar"
+          [class.ai-msg-avatar]="message.role === 'ai'"
+          [class.user-msg-avatar]="message.role === 'user'"
+        >
+          <svg
+            *ngIf="message.role === 'ai'"
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <rect x="3" y="8" width="18" height="12" rx="3" />
+            <circle cx="9" cy="14" r="1.5" />
+            <circle cx="15" cy="14" r="1.5" />
+            <path d="M12 2v6" />
+            <circle cx="12" cy="2" r="1" />
           </svg>
-          <span *ngIf="message.role === 'user'" style="font-size: 13px;">AK</span>
+          <span *ngIf="message.role === 'user'" style="font-size: 13px"
+            >AK</span
+          >
         </div>
 
         <!-- Bubble wrap -->
         <div class="bubble-wrap">
           <!-- Normal bubble (not editing) -->
           <ng-container *ngIf="editingIndex !== i">
-            <div class="bubble" [class.user-bubble]="message.role === 'user'" [class.ai-bubble]="message.role === 'ai'">
+            <div
+              class="bubble"
+              [class.user-bubble]="message.role === 'user'"
+              [class.ai-bubble]="message.role === 'ai'"
+            >
               <!-- AI response with markdown -->
               <div class="ai-response" *ngIf="message.role === 'ai'">
                 <markdown [data]="message.content"></markdown>
-                <span class="typing-dots-inline" *ngIf="message.streaming"><span></span><span></span><span></span></span>
+                <span class="typing-dots-inline" *ngIf="message.streaming"
+                  ><span></span><span></span><span></span
+                ></span>
 
                 <!-- Truncation / Warning Banner -->
                 <div class="warning-banner" *ngIf="message.warningMessage">
-                  <svg class="warning-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-                    <line x1="12" y1="9" x2="12" y2="13"/>
-                    <line x1="12" y1="17" x2="12.01" y2="17"/>
+                  <svg
+                    class="warning-icon"
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path
+                      d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"
+                    />
+                    <line x1="12" y1="9" x2="12" y2="13" />
+                    <line x1="12" y1="17" x2="12.01" y2="17" />
                   </svg>
-                  <span>Response shortened. Ask "continue" to complete the analysis.</span>
+                  <span
+                    >Response shortened. Ask "continue" to complete the
+                    analysis.</span
+                  >
                 </div>
               </div>
 
               <!-- User text -->
-              <div *ngIf="message.role === 'user'" style="white-space: pre-wrap;">{{ message.content }}</div>
-
-              <!-- Metadata card -->
               <div
-                class="metadata-card"
-                *ngIf="message.role === 'ai' && !message.streaming && message.model"
+                *ngIf="message.role === 'user'"
+                style="white-space: pre-wrap"
               >
-                <div class="meta-item">
-                  <span class="meta-label">Model</span>
-                  <span class="meta-value">{{ message.model }}</span>
-                </div>
-                <div class="meta-item">
-                  <span class="meta-label">Time</span>
-                  <span class="meta-value">{{ message.responseTime }}s</span>
-                </div>
-                <div class="meta-item" *ngIf="message.fallbackUsed">
-                  <span class="badge fallback-badge">Fallback Used</span>
+                {{ message.content }}
+              </div>
+
+              <!-- Metadata footer: compact, subtle, like ChatGPT/Claude -->
+              <div
+                class="response-metadata"
+                *ngIf="
+                  message.role === 'ai' &&
+                  !message.streaming &&
+                  (message.model || message.responseMetadata)
+                "
+              >
+                <span class="metadata-divider"></span>
+                <div class="metadata-row">
+                  <span class="metadata-model">{{
+                    message.responseMetadata?.model || message.model
+                  }}</span>
+                  <span class="metadata-sep">•</span>
+                  <span class="metadata-provider">{{
+                    message.responseMetadata?.provider ||
+                      message.provider ||
+                      "OpenRouter"
+                  }}</span>
+                  <ng-container
+                    *ngIf="
+                      message.responseMetadata?.time_to_first_token_ms ||
+                      message.timeToFirstTokenMs != null
+                    "
+                  >
+                    <span class="metadata-sep">•</span>
+                    <span class="metadata-ttft"
+                      >First token:
+                      {{
+                        message.responseMetadata?.time_to_first_token_ms ||
+                          message.timeToFirstTokenMs
+                      }}
+                      ms</span
+                    >
+                  </ng-container>
+                  <span class="metadata-sep" *ngIf="message.responseTime"
+                    >•</span
+                  >
+                  <span class="metadata-time" *ngIf="message.responseTime"
+                    >{{ message.responseTime }}s</span
+                  >
+                  <span
+                    class="metadata-badge fallback"
+                    *ngIf="message.fallbackUsed"
+                    >fallback</span
+                  >
                 </div>
               </div>
             </div>
@@ -110,18 +222,28 @@
               (keydown.escape)="cancelEdit()"
             ></textarea>
             <div class="edit-actions">
-              <button class="edit-btn edit-cancel" (click)="cancelEdit()">Cancel</button>
-              <button class="edit-btn edit-save" (click)="saveEdit(i)">Save & Resend</button>
+              <button class="edit-btn edit-cancel" (click)="cancelEdit()">
+                Cancel
+              </button>
+              <button class="edit-btn edit-save" (click)="saveEdit(i)">
+                Save & Resend
+              </button>
             </div>
           </ng-container>
 
           <!-- Timestamp -->
-          <span class="msg-time" *ngIf="message.timestamp && editingIndex !== i">
+          <span
+            class="msg-time"
+            *ngIf="message.timestamp && editingIndex !== i"
+          >
             {{ formatTime(message.timestamp) }}
           </span>
 
           <!-- Hover toolbar -->
-          <div class="msg-toolbar" *ngIf="editingIndex !== i && !message.streaming">
+          <div
+            class="msg-toolbar"
+            *ngIf="editingIndex !== i && !message.streaming"
+          >
             <!-- Copy (all messages) -->
             <button
               class="toolbar-btn"
@@ -129,11 +251,34 @@
               (click)="copyMessage(message.content, i)"
               title="Copy"
             >
-              <svg *ngIf="copiedIndex !== i" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+              <svg
+                *ngIf="copiedIndex !== i"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <rect x="9" y="9" width="13" height="13" rx="2" />
+                <path
+                  d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
+                />
               </svg>
-              <svg *ngIf="copiedIndex === i" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="20 6 9 17 4 12"/>
+              <svg
+                *ngIf="copiedIndex === i"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <polyline points="20 6 9 17 4 12" />
               </svg>
             </button>
 
@@ -144,8 +289,22 @@
               (click)="startEdit(i, message.content)"
               title="Edit"
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path
+                  d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"
+                />
+                <path
+                  d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"
+                />
               </svg>
             </button>
 
@@ -157,8 +316,21 @@
               title="Regenerate"
               [disabled]="isLoading"
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <polyline points="23 4 23 10 17 10" />
+                <polyline points="1 20 1 14 7 14" />
+                <path
+                  d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"
+                />
               </svg>
             </button>
           </div>
@@ -168,8 +340,21 @@
       <!-- Typing indicator -->
       <div class="typing-indicator" *ngIf="isLoading && !hasStreamingMessage()">
         <div class="msg-avatar ai-msg-avatar">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="8" width="18" height="12" rx="3"/><circle cx="9" cy="14" r="1.5"/><circle cx="15" cy="14" r="1.5"/><path d="M12 2v6"/><circle cx="12" cy="2" r="1"/>
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <rect x="3" y="8" width="18" height="12" rx="3" />
+            <circle cx="9" cy="14" r="1.5" />
+            <circle cx="15" cy="14" r="1.5" />
+            <path d="M12 2v6" />
+            <circle cx="12" cy="2" r="1" />
           </svg>
         </div>
         <div class="typing-dots">
@@ -189,8 +374,17 @@
         aria-label="Scroll to bottom"
         title="Latest messages"
       >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="6 9 12 15 18 9"/>
+        <svg
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <polyline points="6 9 12 15 18 9" />
         </svg>
       </button>
     </div>
@@ -201,27 +395,51 @@
     <div class="chat-scroll">
       <div class="welcome">
         <div class="welcome-icon">
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="8" width="18" height="12" rx="3"/>
-            <circle cx="9" cy="14" r="1.5"/>
-            <circle cx="15" cy="14" r="1.5"/>
-            <path d="M12 2v6"/>
-            <circle cx="12" cy="2" r="1"/>
+          <svg
+            width="32"
+            height="32"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <rect x="3" y="8" width="18" height="12" rx="3" />
+            <circle cx="9" cy="14" r="1.5" />
+            <circle cx="15" cy="14" r="1.5" />
+            <path d="M12 2v6" />
+            <circle cx="12" cy="2" r="1" />
           </svg>
         </div>
         <h2>How can I help with your finances?</h2>
-        <p>Ask me to explain invoices, analyze reconciliations, review anomalies, or summarize transactions.</p>
+        <p>
+          Ask me to explain invoices, analyze reconciliations, review anomalies,
+          or summarize transactions.
+        </p>
         <div class="suggestions">
-          <button class="suggestion" (click)="question = 'Explain invoice INV00020'; askQuestion()">
+          <button
+            class="suggestion"
+            (click)="question = 'Explain invoice INV00020'; askQuestion()"
+          >
             <span class="suggestion-icon">📄</span> Explain invoice INV00020
           </button>
-          <button class="suggestion" (click)="question = 'Analyze this reconciliation'; askQuestion()">
+          <button
+            class="suggestion"
+            (click)="question = 'Analyze this reconciliation'; askQuestion()"
+          >
             <span class="suggestion-icon">🔍</span> Analyze this reconciliation
           </button>
-          <button class="suggestion" (click)="question = 'Why is this payment missing?'; askQuestion()">
+          <button
+            class="suggestion"
+            (click)="question = 'Why is this payment missing?'; askQuestion()"
+          >
             <span class="suggestion-icon">❓</span> Why is this payment missing?
           </button>
-          <button class="suggestion" (click)="question = 'Summarize these invoices'; askQuestion()">
+          <button
+            class="suggestion"
+            (click)="question = 'Summarize these invoices'; askQuestion()"
+          >
             <span class="suggestion-icon">📊</span> Summarize these invoices
           </button>
         </div>
@@ -231,8 +449,19 @@
 
   <!-- Error banner -->
   <div class="error-banner" *ngIf="errorMessage">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-      <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.5"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    >
+      <circle cx="12" cy="12" r="10" />
+      <line x1="12" y1="8" x2="12" y2="12" />
+      <line x1="12" y1="16" x2="12.01" y2="16" />
     </svg>
     {{ errorMessage }}
   </div>
@@ -241,8 +470,18 @@
   <footer class="chat-inputbar">
     <div class="input-wrap">
       <button class="attach-btn" title="Attach file">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+        <svg
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <line x1="12" y1="5" x2="12" y2="19" />
+          <line x1="5" y1="12" x2="19" y2="12" />
         </svg>
       </button>
       <input
@@ -262,13 +501,25 @@
         id="send-message-btn"
       >
         <span *ngIf="!isLoading">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <line x1="22" y1="2" x2="11" y2="13" />
+            <polygon points="22 2 15 22 11 13 2 9 22 2" />
           </svg>
         </span>
         <span *ngIf="isLoading" class="send-spinner"></span>
       </button>
     </div>
-    <p class="input-hint">AI can make mistakes. Verify financial figures before acting.</p>
+    <p class="input-hint">
+      AI can make mistakes. Verify financial figures before acting.
+    </p>
   </footer>
 </div>

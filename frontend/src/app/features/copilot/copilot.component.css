@@ -357,47 +357,73 @@
   color: var(--text-heading);
 }
 
-/* --- Metadata card (model info, response time) --- */
-.metadata-card {
+/* ========== Response Metadata (compact footer) ========== */
+.response-metadata {
+  margin-top: 10px;
+  padding-top: 8px;
+}
+
+.metadata-divider {
+  display: block;
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    transparent,
+    var(--border-hairline) 20%,
+    var(--border-hairline) 80%,
+    transparent
+  );
+  margin-bottom: 6px;
+}
+
+.metadata-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 16px;
-  align-items: center;
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px dashed var(--border-hairline);
-  font-size: 12px;
-}
-
-.meta-item {
-  display: flex;
   align-items: center;
   gap: 4px;
-}
-
-.meta-label {
-  color: var(--text-muted);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  font-size: 10px;
-}
-
-.meta-value {
-  color: var(--text-heading);
-  font-weight: 600;
-  font-size: 12px;
-}
-
-.badge {
-  padding: 2px 8px;
-  border-radius: var(--radius-pill);
   font-size: 11px;
-  font-weight: 600;
+  color: var(--text-muted);
+  line-height: 1.4;
 }
 
-.fallback-badge {
-  background-color: #FFFBEB;
+.metadata-model {
+  font-weight: 600;
+  color: var(--text-heading);
+  opacity: 0.7;
+}
+
+.metadata-provider {
+  opacity: 0.7;
+}
+
+.metadata-ttft {
+  opacity: 0.7;
+}
+
+.metadata-time {
+  opacity: 0.7;
+}
+
+.metadata-sep {
+  opacity: 0.35;
+  font-size: 8px;
+  margin: 0 2px;
+}
+
+.metadata-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 6px;
+  height: 16px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+}
+
+.metadata-badge.fallback {
+  background: #FFFBEB;
   color: #B45309;
   border: 1px solid #FDE68A;
 }
