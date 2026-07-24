@@ -598,7 +598,7 @@ def _try_model_stream(
     }
 
 
-def stream_answer(prompt: str, max_tokens: int = 900, intent: str = "unknown", context: str = ""):
+def stream_answer(prompt: str, max_tokens: int = 900, intent: str = "unknown", context: str = "", model_override: Optional[str] = None):
     """
     Stream an answer from the configured LLM models with strict lifecycle enforcement.
 
@@ -612,6 +612,8 @@ def stream_answer(prompt: str, max_tokens: int = 900, intent: str = "unknown", c
     4. If an exception occurs after streaming has begun: log it, emit a graceful error,
        and terminate. Do NOT fallback.
     5. The "All models failed" error is only emitted when NO chunks were sent.
+    
+    If model_override is provided, only that specific model is used (no fallback).
     """
     start_time = time.perf_counter()
     total_attempts = 0
@@ -621,7 +623,11 @@ def stream_answer(prompt: str, max_tokens: int = 900, intent: str = "unknown", c
 
     system_prompt = build_system_prompt(context, intent=intent)
 
-    tiers = get_model_tiers(intent)
+    # If a specific model is requested, create a single-tier config for that model
+    if model_override:
+        tiers = [ModelTier(models=[ModelConfig(name=model_override, tier=1, enabled=True)], timeout=30.0)]
+    else:
+        tiers = get_model_tiers(intent)
     tried: set = set()
 
     stream_started = False  # ⬅️ THE CRITICAL FLAG — once a chunk is yielded, no fallback allowed

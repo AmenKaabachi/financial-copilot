@@ -1,0 +1,28 @@
+<div class="charts-container" *ngIf="results.length > 0">
+  <div class="section-header">
+    <h2>Visual Analytics</h2>
+    <span class="charts-count">{{ successfulResults.length }} Models Plotted</span>
+  </div>
+
+  <div class="charts-grid">
+    <!-- Chart 1: Response Time -->
+    <div class="chart-card">
+      <div #responseTimeChart class="chart-box" style="height: 360px; width: 100%;"></div>
+    </div>
+
+    <!-- Chart 2: Token Efficiency -->
+    <div class="chart-card">
+      <div #tokenEfficiencyChart class="chart-box" style="height: 360px; width: 100%;"></div>
+    </div>
+
+    <!-- Chart 3: Quality vs Speed Scatter -->
+    <div class="chart-card chart-full">
+      <div #qualitySpeedChart class="chart-box" style="height: 360px; width: 100%;"></div>
+    </div>
+
+    <!-- Chart 4: Overall Ranking Radar -->
+    <div class="chart-card chart-full">
+      <div #rankingChart class="chart-box" style="height: 400px; width: 100%;"></div>
+    </div>
+  </div>
+</div>

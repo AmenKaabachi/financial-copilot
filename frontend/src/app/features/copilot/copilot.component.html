@@ -20,7 +20,7 @@
       </svg>
     </div>
     <div class="chat-header-text">
-      <h2>Assistant</h2>
+      <h2>AI Financial Copilot</h2>
       <p class="header-subtitle">
         <span class="header-status">
           <span class="status-dot"></span>
@@ -29,7 +29,31 @@
       </p>
     </div>
 
-    <div class="header-actions">
+    <!-- Navigation Tabs (Chat / Benchmark Lab) -->
+    <div class="copilot-tabs">
+      <button
+        class="tab-btn"
+        [class.active]="activeTab === 'chat'"
+        (click)="activeTab = 'chat'"
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+        </svg>
+        Chat Copilot
+      </button>
+      <button
+        class="tab-btn"
+        [class.active]="activeTab === 'benchmark'"
+        (click)="activeTab = 'benchmark'"
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M10 2v7.5M14 2v7.5M8.5 2h7M14 9.5a5.5 5.5 0 1 1-4 0v-7.5"/>
+        </svg>
+        Benchmark Lab
+      </button>
+    </div>
+
+    <div class="header-actions" [class.visually-hidden]="activeTab !== 'chat'">
       <app-new-conversation-button
         (conversationCreated)="onConversationCreated($event)"
         [showLabel]="true"
@@ -60,6 +84,7 @@
 
   <!-- ====== Conversation History Drawer ====== -->
   <app-conversation-history
+    *ngIf="activeTab === 'chat'"
     [isPanelOpen]="historyPanelOpen"
     [activeConversationId]="conversationId"
     (conversationSelected)="
@@ -70,456 +95,333 @@
     (closePanel)="closeHistoryPanel()"
   />
 
-  <!-- ====== ZONE 2: Message Thread ====== -->
-  <div
-    class="chat-scroll"
-    #chatScroll
-    (scroll)="onChatScroll()"
-    *ngIf="messages.length; else welcome"
-  >
-    <div class="chat-history">
-      <div
-        *ngFor="let message of messages; let i = index"
-        class="chat-row"
-        [class.user-row]="message.role === 'user'"
-        [class.ai-row]="message.role === 'ai'"
-      >
-        <!-- Avatar -->
+  <ng-container *ngIf="activeTab === 'chat'">
+    <!-- ====== ZONE 2: Message Thread ====== -->
+    <div
+      class="chat-scroll"
+      #chatScroll
+      (scroll)="onChatScroll()"
+      *ngIf="messages.length; else welcome"
+    >
+      <div class="chat-history">
         <div
-          class="msg-avatar"
-          [class.ai-msg-avatar]="message.role === 'ai'"
-          [class.user-msg-avatar]="message.role === 'user'"
+          *ngFor="let message of messages; let i = index"
+          class="chat-row"
+          [class.user-row]="message.role === 'user'"
+          [class.ai-row]="message.role === 'ai'"
         >
-          <svg
-            *ngIf="message.role === 'ai'"
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.5"
-            stroke-linecap="round"
-            stroke-linejoin="round"
+          <!-- Avatar -->
+          <div
+            class="msg-avatar"
+            [class.ai-msg-avatar]="message.role === 'ai'"
+            [class.user-msg-avatar]="message.role === 'user'"
           >
-            <rect x="3" y="8" width="18" height="12" rx="3" />
-            <circle cx="9" cy="14" r="1.5" />
-            <circle cx="15" cy="14" r="1.5" />
-            <path d="M12 2v6" />
-            <circle cx="12" cy="2" r="1" />
-          </svg>
-          <span *ngIf="message.role === 'user'" style="font-size: 13px"
-            >AK</span
-          >
+            <svg
+              *ngIf="message.role === 'ai'"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <rect x="3" y="8" width="18" height="12" rx="3" />
+              <circle cx="9" cy="14" r="1.5" />
+              <circle cx="15" cy="14" r="1.5" />
+              <path d="M12 2v6" />
+              <circle cx="12" cy="2" r="1" />
+            </svg>
+            <span *ngIf="message.role === 'user'" style="font-size: 13px">AK</span>
+          </div>
+
+          <!-- Bubble wrap -->
+          <div class="bubble-wrap">
+            <!-- Normal bubble (not editing) -->
+            <ng-container *ngIf="editingIndex !== i">
+              <div
+                class="bubble"
+                [class.user-bubble]="message.role === 'user'"
+                [class.ai-bubble]="message.role === 'ai'"
+              >
+                <!-- AI response with markdown -->
+                <div class="ai-response" *ngIf="message.role === 'ai'">
+                  <markdown [data]="message.content"></markdown>
+                  <span class="typing-dots-inline" *ngIf="message.streaming">
+                    <span></span><span></span><span></span>
+                  </span>
+
+                  <!-- Truncation / Warning Banner -->
+                  <div class="warning-banner" *ngIf="message.warningMessage">
+                    <svg
+                      class="warning-icon"
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path
+                        d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"
+                      />
+                      <line x1="12" y1="9" x2="12" y2="13" />
+                      <line x1="12" y1="17" x2="12.01" y2="17" />
+                    </svg>
+                    <span>Response shortened. Ask "continue" to complete the analysis.</span>
+                  </div>
+                </div>
+
+                <!-- User text -->
+                <div *ngIf="message.role === 'user'" style="white-space: pre-wrap">
+                  {{ message.content }}
+                </div>
+
+                <!-- Metadata footer -->
+                <div
+                  class="response-metadata"
+                  *ngIf="
+                    message.role === 'ai' &&
+                    !message.streaming &&
+                    (message.model || message.responseMetadata)
+                  "
+                >
+                  <span class="metadata-divider"></span>
+                  <div class="metadata-row">
+                    <span class="metadata-model">{{
+                      message.responseMetadata?.model || message.model
+                    }}</span>
+                    <span class="metadata-sep">•</span>
+                    <span class="metadata-provider">{{
+                      message.responseMetadata?.provider ||
+                        message.provider ||
+                        "OpenRouter"
+                    }}</span>
+                    <ng-container
+                      *ngIf="
+                        message.responseMetadata?.time_to_first_token_ms ||
+                        message.timeToFirstTokenMs != null
+                      "
+                    >
+                      <span class="metadata-sep">•</span>
+                      <span class="metadata-ttft"
+                        >First token:
+                        {{
+                          message.responseMetadata?.time_to_first_token_ms ||
+                            message.timeToFirstTokenMs
+                        }}
+                        ms</span
+                      >
+                    </ng-container>
+                    <span class="metadata-sep" *ngIf="message.responseTime">•</span>
+                    <span class="metadata-time" *ngIf="message.responseTime"
+                      >{{ message.responseTime }}s</span
+                    >
+                    <span class="metadata-badge fallback" *ngIf="message.fallbackUsed"
+                      >fallback</span
+                    >
+                  </div>
+                </div>
+              </div>
+            </ng-container>
+
+            <!-- Editing mode -->
+            <ng-container *ngIf="editingIndex === i">
+              <textarea
+                class="edit-textarea"
+                [(ngModel)]="editedContent"
+                (keydown.escape)="cancelEdit()"
+              ></textarea>
+              <div class="edit-actions">
+                <button class="edit-btn edit-cancel" (click)="cancelEdit()">Cancel</button>
+                <button class="edit-btn edit-save" (click)="saveEdit(i)">Save & Resend</button>
+              </div>
+            </ng-container>
+
+            <!-- Timestamp -->
+            <span class="msg-time" *ngIf="message.timestamp && editingIndex !== i">
+              {{ formatTime(message.timestamp) }}
+            </span>
+
+            <!-- Hover toolbar -->
+            <div class="msg-toolbar" *ngIf="editingIndex !== i && !message.streaming">
+              <button
+                class="toolbar-btn"
+                [class.copied]="copiedIndex === i"
+                (click)="copyMessage(message.content, i)"
+                title="Copy"
+              >
+                <svg *ngIf="copiedIndex !== i" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <rect x="9" y="9" width="13" height="13" rx="2" />
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                </svg>
+                <svg *ngIf="copiedIndex === i" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              </button>
+
+              <button *ngIf="message.role === 'user'" class="toolbar-btn" (click)="startEdit(i, message.content)" title="Edit">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                </svg>
+              </button>
+
+              <button *ngIf="message.role === 'ai'" class="toolbar-btn regenerate" (click)="regenerateResponse(i)" title="Regenerate" [disabled]="isLoading">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <polyline points="23 4 23 10 17 10" />
+                  <polyline points="1 20 1 14 7 14" />
+                  <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                </svg>
+              </button>
+            </div>
+          </div>
         </div>
 
-        <!-- Bubble wrap -->
-        <div class="bubble-wrap">
-          <!-- Normal bubble (not editing) -->
-          <ng-container *ngIf="editingIndex !== i">
-            <div
-              class="bubble"
-              [class.user-bubble]="message.role === 'user'"
-              [class.ai-bubble]="message.role === 'ai'"
-            >
-              <!-- AI response with markdown -->
-              <div class="ai-response" *ngIf="message.role === 'ai'">
-                <markdown [data]="message.content"></markdown>
-                <span class="typing-dots-inline" *ngIf="message.streaming"
-                  ><span></span><span></span><span></span
-                ></span>
+        <!-- Typing indicator -->
+        <div class="typing-indicator" *ngIf="isLoading && !hasStreamingMessage()">
+          <div class="msg-avatar ai-msg-avatar">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <rect x="3" y="8" width="18" height="12" rx="3" />
+              <circle cx="9" cy="14" r="1.5" />
+              <circle cx="15" cy="14" r="1.5" />
+              <path d="M12 2v6" />
+              <circle cx="12" cy="2" r="1" />
+            </svg>
+          </div>
+          <div class="typing-dots">
+            <span></span><span></span><span></span>
+          </div>
+        </div>
 
-                <!-- Truncation / Warning Banner -->
-                <div class="warning-banner" *ngIf="message.warningMessage">
-                  <svg
-                    class="warning-icon"
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  >
-                    <path
-                      d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"
-                    />
-                    <line x1="12" y1="9" x2="12" y2="13" />
-                    <line x1="12" y1="17" x2="12.01" y2="17" />
-                  </svg>
-                  <span
-                    >Response shortened. Ask "continue" to complete the
-                    analysis.</span
-                  >
-                </div>
-              </div>
+        <div #scrollAnchor></div>
 
-              <!-- User text -->
-              <div
-                *ngIf="message.role === 'user'"
-                style="white-space: pre-wrap"
-              >
-                {{ message.content }}
-              </div>
+        <!-- Scroll to bottom button -->
+        <button
+          class="scroll-bottom-btn"
+          *ngIf="showScrollButton"
+          (click)="scrollToBottomInstant()"
+          aria-label="Scroll to bottom"
+          title="Latest messages"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+        </button>
+      </div>
+    </div>
 
-              <!-- Metadata footer: compact, subtle, like ChatGPT/Claude -->
-              <div
-                class="response-metadata"
-                *ngIf="
-                  message.role === 'ai' &&
-                  !message.streaming &&
-                  (message.model || message.responseMetadata)
-                "
-              >
-                <span class="metadata-divider"></span>
-                <div class="metadata-row">
-                  <span class="metadata-model">{{
-                    message.responseMetadata?.model || message.model
-                  }}</span>
-                  <span class="metadata-sep">•</span>
-                  <span class="metadata-provider">{{
-                    message.responseMetadata?.provider ||
-                      message.provider ||
-                      "OpenRouter"
-                  }}</span>
-                  <ng-container
-                    *ngIf="
-                      message.responseMetadata?.time_to_first_token_ms ||
-                      message.timeToFirstTokenMs != null
-                    "
-                  >
-                    <span class="metadata-sep">•</span>
-                    <span class="metadata-ttft"
-                      >First token:
-                      {{
-                        message.responseMetadata?.time_to_first_token_ms ||
-                          message.timeToFirstTokenMs
-                      }}
-                      ms</span
-                    >
-                  </ng-container>
-                  <span class="metadata-sep" *ngIf="message.responseTime"
-                    >•</span
-                  >
-                  <span class="metadata-time" *ngIf="message.responseTime"
-                    >{{ message.responseTime }}s</span
-                  >
-                  <span
-                    class="metadata-badge fallback"
-                    *ngIf="message.fallbackUsed"
-                    >fallback</span
-                  >
-                </div>
-              </div>
-            </div>
-          </ng-container>
-
-          <!-- Editing mode -->
-          <ng-container *ngIf="editingIndex === i">
-            <textarea
-              class="edit-textarea"
-              [(ngModel)]="editedContent"
-              (keydown.escape)="cancelEdit()"
-            ></textarea>
-            <div class="edit-actions">
-              <button class="edit-btn edit-cancel" (click)="cancelEdit()">
-                Cancel
-              </button>
-              <button class="edit-btn edit-save" (click)="saveEdit(i)">
-                Save & Resend
-              </button>
-            </div>
-          </ng-container>
-
-          <!-- Timestamp -->
-          <span
-            class="msg-time"
-            *ngIf="message.timestamp && editingIndex !== i"
-          >
-            {{ formatTime(message.timestamp) }}
-          </span>
-
-          <!-- Hover toolbar -->
-          <div
-            class="msg-toolbar"
-            *ngIf="editingIndex !== i && !message.streaming"
-          >
-            <!-- Copy (all messages) -->
-            <button
-              class="toolbar-btn"
-              [class.copied]="copiedIndex === i"
-              (click)="copyMessage(message.content, i)"
-              title="Copy"
-            >
-              <svg
-                *ngIf="copiedIndex !== i"
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.5"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
-                <rect x="9" y="9" width="13" height="13" rx="2" />
-                <path
-                  d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
-                />
-              </svg>
-              <svg
-                *ngIf="copiedIndex === i"
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.5"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
+    <!-- ====== WELCOME SCREEN ====== -->
+    <ng-template #welcome>
+      <div class="chat-scroll">
+        <div class="welcome">
+          <div class="welcome-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <rect x="3" y="8" width="18" height="12" rx="3" />
+              <circle cx="9" cy="14" r="1.5" />
+              <circle cx="15" cy="14" r="1.5" />
+              <path d="M12 2v6" />
+              <circle cx="12" cy="2" r="1" />
+            </svg>
+          </div>
+          <h2>How can I help with your finances?</h2>
+          <p>Ask me to explain invoices, analyze reconciliations, review anomalies, or summarize transactions.</p>
+          <div class="suggestions">
+            <button class="suggestion" (click)="question = 'Explain invoice INV00020'; askQuestion()">
+              <span class="suggestion-icon">📄</span> Explain invoice INV00020
             </button>
-
-            <!-- Edit (user messages only) -->
-            <button
-              *ngIf="message.role === 'user'"
-              class="toolbar-btn"
-              (click)="startEdit(i, message.content)"
-              title="Edit"
-            >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.5"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
-                <path
-                  d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"
-                />
-                <path
-                  d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"
-                />
-              </svg>
+            <button class="suggestion" (click)="question = 'Analyze this reconciliation'; askQuestion()">
+              <span class="suggestion-icon">🔍</span> Analyze this reconciliation
             </button>
-
-            <!-- Regenerate (AI messages only) -->
-            <button
-              *ngIf="message.role === 'ai'"
-              class="toolbar-btn regenerate"
-              (click)="regenerateResponse(i)"
-              title="Regenerate"
-              [disabled]="isLoading"
-            >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.5"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
-                <polyline points="23 4 23 10 17 10" />
-                <polyline points="1 20 1 14 7 14" />
-                <path
-                  d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"
-                />
-              </svg>
+            <button class="suggestion" (click)="question = 'Why is this payment missing?'; askQuestion()">
+              <span class="suggestion-icon">❓</span> Why is this payment missing?
+            </button>
+            <button class="suggestion" (click)="question = 'Summarize these invoices'; askQuestion()">
+              <span class="suggestion-icon">📊</span> Summarize these invoices
             </button>
           </div>
         </div>
       </div>
+    </ng-template>
 
-      <!-- Typing indicator -->
-      <div class="typing-indicator" *ngIf="isLoading && !hasStreamingMessage()">
-        <div class="msg-avatar ai-msg-avatar">
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.5"
-            stroke-linecap="round"
-            stroke-linejoin="round"
+    <!-- Error banner -->
+    <div class="error-banner" *ngIf="errorMessage">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <circle cx="12" cy="12" r="10" />
+        <line x1="12" y1="8" x2="12" y2="12" />
+        <line x1="12" y1="16" x2="12.01" y2="16" />
+      </svg>
+      {{ errorMessage }}
+    </div>
+
+    <!-- ====== ZONE 3: Input Bar ====== -->
+    <footer class="chat-inputbar">
+      <div class="input-wrap">
+        <!-- Model Selector Dropdown -->
+        <div class="model-selector-wrap" (click)="$event.stopPropagation()">
+          <button
+            class="model-selector-btn"
+            (click)="modelDropdownOpen = !modelDropdownOpen"
+            [title]="selectedModel === 'auto' ? 'Auto (Smart Routing)' : 'Model: ' + selectedModel"
           >
-            <rect x="3" y="8" width="18" height="12" rx="3" />
-            <circle cx="9" cy="14" r="1.5" />
-            <circle cx="15" cy="14" r="1.5" />
-            <path d="M12 2v6" />
-            <circle cx="12" cy="2" r="1" />
-          </svg>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <rect x="3" y="8" width="18" height="12" rx="3"/><circle cx="9" cy="14" r="1.5"/><circle cx="15" cy="14" r="1.5"/>
+            </svg>
+            <span class="model-selector-label">{{ selectedModel === 'auto' ? 'Auto' : getModelShortName(selectedModel) }}</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
+          </button>
+          <div class="model-dropdown" *ngIf="modelDropdownOpen">
+            <div class="model-dropdown-header">Select Model</div>
+            <div
+              *ngFor="let opt of modelOptions"
+              class="model-dropdown-item"
+              [class.selected]="selectedModel === opt.id"
+              (click)="selectedModel = opt.id; modelDropdownOpen = false">
+              <div class="model-item-info">
+                <span class="model-item-name">{{ opt.name }}</span>
+                <span class="model-item-tag">{{ opt.tag }}</span>
+              </div>
+              <span *ngIf="selectedModel === opt.id" class="model-check">✓</span>
+            </div>
+          </div>
         </div>
-        <div class="typing-dots">
-          <span></span>
-          <span></span>
-          <span></span>
-        </div>
-      </div>
 
-      <div #scrollAnchor></div>
-
-      <!-- Scroll to bottom button -->
-      <button
-        class="scroll-bottom-btn"
-        *ngIf="showScrollButton"
-        (click)="scrollToBottomInstant()"
-        aria-label="Scroll to bottom"
-        title="Latest messages"
-      >
-        <svg
-          width="18"
-          height="18"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
+        <input
+          type="text"
+          class="chat-input"
+          [(ngModel)]="question"
+          (keyup.enter)="askQuestion()"
+          placeholder="Message your financial copilot..."
+          [disabled]="isLoading"
+          id="chat-input-field"
+        />
+        <button
+          class="send-btn"
+          (click)="askQuestion()"
+          [disabled]="isLoading || !question.trim()"
+          aria-label="Send"
+          id="send-message-btn"
         >
-          <polyline points="6 9 12 15 18 9" />
-        </svg>
-      </button>
-    </div>
-  </div>
-
-  <!-- ====== WELCOME SCREEN ====== -->
-  <ng-template #welcome>
-    <div class="chat-scroll">
-      <div class="welcome">
-        <div class="welcome-icon">
-          <svg
-            width="32"
-            height="32"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.5"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <rect x="3" y="8" width="18" height="12" rx="3" />
-            <circle cx="9" cy="14" r="1.5" />
-            <circle cx="15" cy="14" r="1.5" />
-            <path d="M12 2v6" />
-            <circle cx="12" cy="2" r="1" />
-          </svg>
-        </div>
-        <h2>How can I help with your finances?</h2>
-        <p>
-          Ask me to explain invoices, analyze reconciliations, review anomalies,
-          or summarize transactions.
-        </p>
-        <div class="suggestions">
-          <button
-            class="suggestion"
-            (click)="question = 'Explain invoice INV00020'; askQuestion()"
-          >
-            <span class="suggestion-icon">📄</span> Explain invoice INV00020
-          </button>
-          <button
-            class="suggestion"
-            (click)="question = 'Analyze this reconciliation'; askQuestion()"
-          >
-            <span class="suggestion-icon">🔍</span> Analyze this reconciliation
-          </button>
-          <button
-            class="suggestion"
-            (click)="question = 'Why is this payment missing?'; askQuestion()"
-          >
-            <span class="suggestion-icon">❓</span> Why is this payment missing?
-          </button>
-          <button
-            class="suggestion"
-            (click)="question = 'Summarize these invoices'; askQuestion()"
-          >
-            <span class="suggestion-icon">📊</span> Summarize these invoices
-          </button>
-        </div>
+          <span *ngIf="!isLoading">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="22" y1="2" x2="11" y2="13" />
+              <polygon points="22 2 15 22 11 13 2 9 22 2" />
+            </svg>
+          </span>
+          <span *ngIf="isLoading" class="send-spinner"></span>
+        </button>
       </div>
-    </div>
-  </ng-template>
+      <p class="input-hint">AI can make mistakes. Verify financial figures before acting.</p>
+    </footer>
+  </ng-container>
 
-  <!-- Error banner -->
-  <div class="error-banner" *ngIf="errorMessage">
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.5"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-    >
-      <circle cx="12" cy="12" r="10" />
-      <line x1="12" y1="8" x2="12" y2="12" />
-      <line x1="12" y1="16" x2="12.01" y2="16" />
-    </svg>
-    {{ errorMessage }}
+  <!-- ====== ZONE 4: Benchmark Lab Tab View ====== -->
+  <div class="benchmark-tab-content" *ngIf="activeTab === 'benchmark'">
+    <app-benchmark></app-benchmark>
   </div>
-
-  <!-- ====== ZONE 3: Input Bar ====== -->
-  <footer class="chat-inputbar">
-    <div class="input-wrap">
-      <button class="attach-btn" title="Attach file">
-        <svg
-          width="18"
-          height="18"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="1.5"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
-          <line x1="12" y1="5" x2="12" y2="19" />
-          <line x1="5" y1="12" x2="19" y2="12" />
-        </svg>
-      </button>
-      <input
-        type="text"
-        class="chat-input"
-        [(ngModel)]="question"
-        (keyup.enter)="askQuestion()"
-        placeholder="Message your financial copilot..."
-        [disabled]="isLoading"
-        id="chat-input-field"
-      />
-      <button
-        class="send-btn"
-        (click)="askQuestion()"
-        [disabled]="isLoading || !question.trim()"
-        aria-label="Send"
-        id="send-message-btn"
-      >
-        <span *ngIf="!isLoading">
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <line x1="22" y1="2" x2="11" y2="13" />
-            <polygon points="22 2 15 22 11 13 2 9 22 2" />
-          </svg>
-        </span>
-        <span *ngIf="isLoading" class="send-spinner"></span>
-      </button>
-    </div>
-    <p class="input-hint">
-      AI can make mistakes. Verify financial figures before acting.
-    </p>
-  </footer>
 </div>

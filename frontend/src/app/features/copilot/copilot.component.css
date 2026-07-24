@@ -1,5 +1,3 @@
-/* ========== Copilot Chat — BankMatch Theme ========== */
-
 :host {
   display: flex;
   flex-direction: column;
@@ -9,7 +7,6 @@
   overflow: hidden;
 }
 
-/* ========== CHAT PANEL (white card) ========== */
 .chat-panel {
   display: flex;
   flex-direction: column;
@@ -22,7 +19,6 @@
   overflow: hidden;
 }
 
-/* ========== ZONE 1: HEADER STRIP ========== */
 .chat-header {
   flex: 0 0 auto;
   display: flex;
@@ -853,6 +849,168 @@
   .chat-scroll {
     padding: 16px;
   }
+}
+
+/* Visually hidden — keeps layout space but hides from view */
+.visually-hidden {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* ========== Copilot Tabs (Chat / Benchmark Lab) ========== */
+.copilot-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  margin-right: 16px;
+  background: var(--bg-page, #f8fafc);
+  border-radius: 10px;
+  padding: 3px;
+  border: 1px solid var(--border-hairline, #e2e8f0);
+}
+
+.tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted, #64748b);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
+  white-space: nowrap;
+}
+
+.tab-btn:hover {
+  color: var(--text-heading, #1e293b);
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.tab-btn.active {
+  background: #ffffff;
+  color: var(--brand-primary, #2f5fe0);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.tab-btn svg {
+  flex-shrink: 0;
+}
+
+/* Benchmark tab content container */
+.benchmark-tab-content {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* ========== Model Selector Dropdown ========== */
+.model-selector-wrap {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.model-selector-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted, #64748b);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  transition: all 0.12s ease;
+  white-space: nowrap;
+}
+
+.model-selector-btn:hover {
+  color: var(--brand-primary, #2f5fe0);
+  background: rgba(47, 95, 224, 0.06);
+}
+
+.model-selector-label {
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-dropdown {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  min-width: 260px;
+  max-height: 360px;
+  overflow-y: auto;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  z-index: 100;
+  padding: 6px;
+}
+
+.model-dropdown-header {
+  padding: 8px 12px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #94a3b8;
+  border-bottom: 1px solid #f1f5f9;
+  margin-bottom: 4px;
+}
+
+.model-dropdown-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.model-dropdown-item:hover {
+  background: #f8fafc;
+}
+
+.model-dropdown-item.selected {
+  background: #eef2ff;
+}
+
+.model-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.model-item-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.model-item-tag {
+  font-size: 10px;
+  font-weight: 600;
+  color: #94a3b8;
+  text-transform: uppercase;
+}
+
+.model-check {
+  font-size: 14px;
+  color: #4f46e5;
+  font-weight: 700;
 }
 
 /* ========== Truncation Warning Banner ========== */

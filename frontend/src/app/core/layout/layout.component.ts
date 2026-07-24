@@ -17,10 +17,13 @@ export class LayoutComponent {
     { icon: 'dashboard', label: 'Dashboard',      route: '/dashboard',       active: false },
     { icon: 'receipt',   label: 'Transactions',    route: '/transactions',    active: false },
     { icon: 'compare',   label: 'Reconciliation',  route: '/reconciliation',  active: false },
-    { icon: 'smart_toy', label: 'AI Assistant',     route: '/copilot',         active: true  },
+    { icon: 'smart_toy', label: 'AI Assistant',     route: '/copilot',         active: false },
+    { icon: 'science',   label: 'Benchmark Lab',    route: '/benchmark',       active: false },
     { icon: 'bar_chart', label: 'Reports',          route: '/reports',         active: false },
     { icon: 'settings',  label: 'Settings',         route: '/settings',        active: false },
   ];
+
+
 
   toggleSidebar(): void {
     this.sidebarCollapsed = !this.sidebarCollapsed;

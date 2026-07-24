@@ -8,6 +8,7 @@ import { ConversationService } from '../../core/services/conversation.service';
 import { Conversation, Message } from '../../core/models/conversation.models';
 import { NewConversationButtonComponent } from './new-conversation-button.component';
 import { ConversationHistoryComponent } from './conversation-history.component';
+import { BenchmarkComponent } from '../benchmark/benchmark.component';
 
 interface ChatMessage {
   role: 'user' | 'ai';
@@ -27,7 +28,7 @@ interface ChatMessage {
 @Component({
   selector: 'app-copilot',
   standalone: true,
-  imports: [CommonModule, FormsModule, MarkdownModule, NewConversationButtonComponent, ConversationHistoryComponent],
+  imports: [CommonModule, FormsModule, MarkdownModule, NewConversationButtonComponent, ConversationHistoryComponent, BenchmarkComponent],
   templateUrl: './copilot.component.html',
   styleUrl: './copilot.component.css'
 })
@@ -37,11 +38,29 @@ export class CopilotComponent implements OnInit {
   private scrollAnchor = viewChild<ElementRef<HTMLDivElement>>('scrollAnchor');
   private chatScroll = viewChild<ElementRef<HTMLDivElement>>('chatScroll');
 
+  activeTab: 'chat' | 'benchmark' = 'chat';
   question: string = '';
   messages: ChatMessage[] = [];
+
   isLoading: boolean = false;
   errorMessage: string = '';
   showScrollButton: boolean = false;
+
+  // Model selector
+  selectedModel: string = 'auto';
+  modelOptions = [
+    { id: 'auto', name: 'Auto (Smart Routing)', tag: 'Recommended' },
+    { id: 'openai/gpt-oss-20b:free', name: 'GPT OSS 20B', tag: 'Fast' },
+    { id: 'google/gemma-4-26b-a4b-it:free', name: 'Gemma 4 26B A4B', tag: 'Balanced' },
+    { id: 'poolside/laguna-xs-2.1:free', name: 'Laguna XS 2.1', tag: 'Fast' },
+    { id: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free', name: 'Nemotron Omni 30B', tag: 'Reasoning' },
+    { id: 'nvidia/nemotron-3-nano-30b-a3b:free', name: 'Nemotron Nano 30B', tag: 'Medium' },
+    { id: 'nvidia/nemotron-nano-9b-v2:free', name: 'Nemotron Nano 9B', tag: 'Compact' },
+    { id: 'google/gemma-4-31b-it:free', name: 'Gemma 4 31B IT', tag: 'High Quality' },
+    { id: 'nvidia/nemotron-3-ultra-550b-a55b:free', name: 'Nemotron Ultra 550B', tag: 'Ultra' },
+    { id: 'nvidia/nemotron-3-super-120b-a12b:free', name: 'Nemotron Super 120B', tag: 'Super' },
+  ];
+  modelDropdownOpen = false;
 
   // Conversation history
   conversationId: string | null = null;
@@ -135,6 +154,12 @@ export class CopilotComponent implements OnInit {
   onConversationRenamed(update: { id: string; title: string }): void {
     // Title update is handled locally in the history component
     // No additional action needed here unless we show the title somewhere
+  }
+
+  /** Get short display name for a model ID */
+  getModelShortName(modelId: string): string {
+    const found = this.modelOptions.find(m => m.id === modelId);
+    return found ? found.name.split('(')[0].trim() : modelId;
   }
 
   /** Format timestamp for display */
@@ -298,7 +323,11 @@ export class CopilotComponent implements OnInit {
 
   private startStream(question: string, aiMessage: ChatMessage, conversationId: string): void {
     const requestPayload: any = { question, conversation_id: conversationId };
-    console.log('[Copilot] Sending stream request:', { question: question.slice(0, 50), conversation_id: conversationId });
+    // Pass model override if user selected a specific model (not "auto")
+    if (this.selectedModel && this.selectedModel !== 'auto') {
+      requestPayload.model = this.selectedModel;
+    }
+    console.log('[Copilot] Sending stream request:', { question: question.slice(0, 50), conversation_id: conversationId, model: requestPayload.model || 'auto' });
 
     this.copilotService.askQuestionStream(requestPayload).subscribe({
       next: (event) => {

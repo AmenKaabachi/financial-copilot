@@ -1,0 +1,312 @@
+<div class="benchmark-container">
+  <!-- Header -->
+  <header class="benchmark-header">
+    <div class="header-titles">
+      <h1 class="page-title">LLM Benchmark Lab</h1>
+      <p class="subtitle">Compare AI models based on response quality, latency, and token efficiency.</p>
+    </div>
+    <div class="badge-lab">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M10 2v7.5M14 2v7.5M8.5 2h7M14 9.5a5.5 5.5 0 1 1-4 0v-7.5"/>
+      </svg>
+      Experimental Environment
+    </div>
+  </header>
+
+  <!-- Error Notification -->
+  <div class="error-banner" *ngIf="errorMessage">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+    </svg>
+    <span>{{ errorMessage }}</span>
+  </div>
+
+  <!-- SECTION 1 — Test Configuration -->
+  <section class="card config-card">
+    <div class="section-header">
+      <h2>Section 1 — Test Configuration</h2>
+    </div>
+
+    <div class="config-grid">
+      <!-- Question input area -->
+      <div class="input-group full-width">
+        <label for="benchmark-question">Benchmark Question Prompt</label>
+        <textarea
+          id="benchmark-question"
+          rows="3"
+          class="form-control"
+          placeholder="Enter benchmark question..."
+          [(ngModel)]="question">
+        </textarea>
+        <div class="presets-wrap">
+          <span class="presets-label">Example Prompts:</span>
+          <button
+            *ngFor="let p of presets"
+            type="button"
+            class="btn-preset"
+            (click)="setPreset(p)">
+            "{{ p }}"
+          </button>
+        </div>
+      </div>
+
+      <!-- Model selector -->
+      <div class="input-group full-width">
+        <div class="label-with-actions">
+          <label>Select Models to Compare</label>
+          <div class="selection-actions">
+            <button type="button" class="btn-link" (click)="selectAllModels()">Select All</button>
+            <span class="divider">|</span>
+            <button type="button" class="btn-link" (click)="deselectAllModels()">Deselect All</button>
+          </div>
+        </div>
+        <div class="models-grid">
+          <div
+            *ngFor="let m of availableModels"
+            class="model-chip"
+            [class.selected]="isModelSelected(m.id)"
+            (click)="toggleModel(m.id)">
+            <input type="checkbox" [checked]="isModelSelected(m.id)" (click)="$event.stopPropagation()" (change)="toggleModel(m.id)"/>
+            <span class="chip-name">{{ m.name }}</span>
+            <span class="chip-tag">{{ m.tag }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Advanced Params -->
+      <div class="input-group">
+        <label for="max-tokens">Max Tokens</label>
+        <input id="max-tokens" type="number" class="form-control" [(ngModel)]="maxTokens" min="100" max="4000"/>
+      </div>
+
+      <div class="input-group">
+        <label for="temperature">Temperature ({{ temperature }})</label>
+        <input id="temperature" type="range" class="form-range" [(ngModel)]="temperature" min="0" max="1" step="0.1"/>
+      </div>
+
+      <div class="input-group">
+        <label for="intent">Intent Selector</label>
+        <select id="intent" class="form-control" [(ngModel)]="selectedIntent">
+          <option *ngFor="let opt of intentOptions" [value]="opt.id">{{ opt.name }}</option>
+        </select>
+      </div>
+
+      <!-- Action Button -->
+      <div class="input-group full-width action-wrap">
+        <button
+          class="btn-primary-lab"
+          [disabled]="isLoading || selectedModels.length === 0"
+          (click)="runBenchmark()">
+          <span *ngIf="!isLoading">Run Benchmark</span>
+          <span *ngIf="isLoading" class="spinner-wrap">
+            <span class="spinner"></span>
+            Running Tests...
+          </span>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Loading State Indicator -->
+  <div class="loading-state-card card" *ngIf="isLoading">
+    <div class="loading-pulse">
+      <div class="pulse-icon">⚡</div>
+      <h3>Running Model Comparisons...</h3>
+      <p>Sending exact same question to {{ selectedModels.length }} selected models simultaneously without fallbacks.</p>
+    </div>
+  </div>
+
+  <!-- SECTION 2 — Live Benchmark Results -->
+  <section class="card results-card" *ngIf="benchmarkData && !isLoading">
+    <div class="section-header">
+      <h2>Section 2 — Live Benchmark Results</h2>
+      <span class="results-count">{{ benchmarkData.results.length }} Models Evaluated</span>
+    </div>
+
+    <div class="cards-grid">
+      <div
+        *ngFor="let result of benchmarkData.results"
+        class="model-result-card"
+        [class.status-failed]="result.status !== 'SUCCESS'">
+        <div class="card-header-row">
+          <div>
+            <h3 class="model-title">{{ getModelLabel(result.model) }}</h3>
+            <span class="model-id-sub">{{ result.model }}</span>
+          </div>
+          <span class="status-badge" [class]="result.status.toLowerCase()">
+            {{ result.status }}
+          </span>
+        </div>
+
+        <div class="metrics-grid">
+          <div class="metric-box">
+            <span class="metric-label">TTFT</span>
+            <span class="metric-val">{{ result.ttft_ms }} ms</span>
+          </div>
+          <div class="metric-box">
+            <span class="metric-label">Total Time</span>
+            <span class="metric-val">{{ (result.response_time_ms / 1000) | number:'1.2-2' }} s</span>
+          </div>
+          <div class="metric-box">
+            <span class="metric-label">Prompt / Comp</span>
+            <span class="metric-val">{{ result.prompt_tokens }} / {{ result.completion_tokens }}</span>
+          </div>
+          <div class="metric-box">
+            <span class="metric-label">Total Tokens</span>
+            <span class="metric-val">{{ result.total_tokens }}</span>
+          </div>
+          <div class="metric-box">
+            <span class="metric-label">Tokens/Sec</span>
+            <span class="metric-val highlight-val">{{ result.tokens_per_second }}</span>
+          </div>
+        </div>
+
+        <!-- Answer / Error Box -->
+        <div class="answer-box">
+          <div class="answer-label">Response:</div>
+          <div class="answer-body" *ngIf="result.status === 'SUCCESS'">
+            <markdown [data]="result.answer"></markdown>
+          </div>
+          <div class="error-body" *ngIf="result.status !== 'SUCCESS'">
+            <p><strong>Error:</strong> {{ result.error || 'Execution failed.' }}</p>
+          </div>
+        </div>
+
+        <!-- Quality Rating Widget -->
+        <div class="rating-bar" *ngIf="result.status === 'SUCCESS'">
+          <span class="rating-label">Quality Score:</span>
+          <div class="stars">
+            <span
+              *ngFor="let star of [1,2,3,4,5]"
+              class="star"
+              [class.filled]="(result.quality_score || 0) >= star"
+              (click)="rateModel(result, star)">
+              ★
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SECTION 3 — Comparison Table -->
+  <section class="card table-card" *ngIf="benchmarkData && !isLoading">
+    <div class="section-header">
+      <h2>Section 3 — Comparison Table</h2>
+    </div>
+
+    <div class="table-responsive">
+      <table class="benchmark-table">
+        <thead>
+          <tr>
+            <th (click)="sortResults('model')">Model</th>
+            <th (click)="sortResults('ttft_ms')">TTFT</th>
+            <th (click)="sortResults('response_time_ms')">Total Time</th>
+            <th (click)="sortResults('prompt_tokens')">Prompt Tokens</th>
+            <th (click)="sortResults('completion_tokens')">Completion Tokens</th>
+            <th (click)="sortResults('total_tokens')">Total Tokens</th>
+            <th (click)="sortResults('tokens_per_second')">Tokens/sec</th>
+            <th (click)="sortResults('quality_score')">Quality Score</th>
+            <th (click)="sortResults('status')">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let r of sortedResults">
+            <td class="font-semibold">{{ getModelLabel(r.model) }}</td>
+            <td>{{ r.ttft_ms }} ms</td>
+            <td>{{ (r.response_time_ms / 1000) | number:'1.2-2' }} s</td>
+            <td>{{ r.prompt_tokens }}</td>
+            <td>{{ r.completion_tokens }}</td>
+            <td>{{ r.total_tokens }}</td>
+            <td class="font-semibold text-accent">{{ r.tokens_per_second }}</td>
+            <td>
+              <span *ngIf="r.quality_score" class="score-pill">⭐ {{ r.quality_score }}/5</span>
+              <span *ngIf="!r.quality_score" class="text-muted">Unrated</span>
+            </td>
+            <td>
+              <span class="status-badge-sm" [class]="r.status.toLowerCase()">{{ r.status }}</span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- SECTION 4 — Ranking -->
+  <section class="card ranking-card" *ngIf="benchmarkData && benchmarkData.rankings && !isLoading">
+    <div class="section-header">
+      <h2>Section 4 — Ranking System</h2>
+    </div>
+
+    <div class="rankings-grid">
+      <div class="rank-card">
+        <div class="rank-icon">🚀</div>
+        <div class="rank-content">
+          <span class="rank-title">Fastest Model</span>
+          <span class="rank-winner">{{ getModelLabel(benchmarkData.rankings.fastest_model || '') || 'N/A' }}</span>
+        </div>
+      </div>
+
+      <div class="rank-card">
+        <div class="rank-icon">⚡</div>
+        <div class="rank-content">
+          <span class="rank-title">Best Latency (TTFT)</span>
+          <span class="rank-winner">{{ getModelLabel(benchmarkData.rankings.best_latency_model || '') || 'N/A' }}</span>
+        </div>
+      </div>
+
+      <div class="rank-card">
+        <div class="rank-icon">💎</div>
+        <div class="rank-content">
+          <span class="rank-title">Most Token Efficient</span>
+          <span class="rank-winner">{{ getModelLabel(benchmarkData.rankings.most_efficient_model || '') || 'N/A' }}</span>
+        </div>
+      </div>
+
+      <div class="rank-card highlight-rank">
+        <div class="rank-icon">🏆</div>
+        <div class="rank-content">
+          <span class="rank-title">Recommended Production Model</span>
+          <span class="rank-winner">{{ getModelLabel(benchmarkData.rankings.recommended_production_model || '') || 'N/A' }}</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Visual Analytics Section (ECharts) -->
+  <app-benchmark-charts
+    *ngIf="benchmarkData && !isLoading"
+    [results]="benchmarkData.results"
+    [visible]="!!benchmarkData && !isLoading">
+  </app-benchmark-charts>
+
+  <!-- SECTION 5 — Export -->
+  <section class="card export-card" *ngIf="benchmarkData && !isLoading">
+    <div class="section-header">
+      <h2>Section 5 — Export & Reports</h2>
+    </div>
+
+    <div class="export-actions">
+      <button class="btn-secondary-lab" (click)="exportCSV()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        Export CSV
+      </button>
+
+      <button class="btn-secondary-lab" (click)="exportJSON()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        Export JSON
+      </button>
+
+      <button class="btn-primary-lab" (click)="generateReport()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+        </svg>
+        Generate Benchmark Report
+      </button>
+    </div>
+  </section>
+</div>

@@ -36,9 +36,14 @@ from app.services.analytics import (
 )
 from app.services.llm.manager import get_all_health, MODEL_POOL_LABELS
 from app.services.timing import RequestMetrics
+from app.services.benchmark.benchmark_models import BenchmarkRequest, BenchmarkResponse
+from app.services.benchmark.benchmark_service import run_model_test, compare_results
+from app.services.llm.prompts import build_system_prompt
 
 router = APIRouter()
+
 classifier = IntentClassifier()
+
 
 
 # Direct-answer handler: maps keys from DIRECT_ANSWER_PATTERNS in routing.py
@@ -103,6 +108,7 @@ class QuestionRequest(BaseModel):
     question: str
     session_id: Optional[str] = "default"
     conversation_id: Optional[str] = None
+    model: Optional[str] = None
 
 
 def _json(payload: dict) -> str:
@@ -629,6 +635,7 @@ def chat_stream(request: QuestionRequest):
                 max_tokens=intent_result.recommended_max_tokens,
                 intent=intent_result.intent.value,
                 context=context_str,
+                model_override=request.model,
             ):
                 if meta is not None:
                     # Handle dedicated metadata event (type: "metadata")
@@ -724,3 +731,67 @@ def models_health():
             "last_updated": s["last_updated"],
         }
     return result
+
+
+@router.post("/benchmark", response_model=BenchmarkResponse)
+def run_benchmark(request: BenchmarkRequest):
+    """
+    Executes a benchmark comparison across specified LLM models.
+    Isolation Guarantee:
+    - Bypasses model fallback logic.
+    - Tests each requested model individually.
+    - Measures exact response time, TTFT, token metrics, and tokens/sec.
+    """
+    if not request.models:
+        raise HTTPException(status_code=400, detail="At least one model must be selected for benchmarking.")
+
+    session_id = "benchmark_session"
+
+    # Intent Classification or override
+    if request.intent:
+        intent_enum = IntentType.from_str(request.intent) if hasattr(IntentType, 'from_str') else None
+        if not intent_enum:
+            route = classifier.classify(request.question, session_id=session_id)
+            intent_result = intent_result_from_route(route)
+        else:
+            route = classifier.classify(request.question, session_id=session_id)
+            intent_result = intent_result_from_route(route)
+            intent_result.intent = intent_enum
+    else:
+        route = classifier.classify(request.question, session_id=session_id)
+        intent_result = intent_result_from_route(route)
+
+    intent_name = intent_result.intent.value if hasattr(intent_result.intent, 'value') else str(intent_result.intent)
+
+    # Financial Context Retrieval
+    context, _ = _build_context(request.question, intent_result, session_id=session_id)
+
+    # Prompt Construction
+    user_prompt = build_user_prompt(context=context, question=request.question, intent=intent_result.intent)
+    context_str = json.dumps(context, ensure_ascii=False) if context else ""
+    system_prompt = build_system_prompt(context_str, intent=intent_name)
+
+    max_tokens = request.max_tokens or 800
+    temperature = request.temperature if request.temperature is not None else 0.2
+
+    benchmark_results = []
+    for model_name in request.models:
+        logger.info(f"[Benchmark] Testing model: {model_name}...")
+        res = run_model_test(
+            model_name=model_name,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+        benchmark_results.append(res)
+
+    rankings = compare_results(benchmark_results)
+
+    return BenchmarkResponse(
+        question=request.question,
+        intent=intent_name,
+        results=benchmark_results,
+        rankings=rankings,
+    )
+

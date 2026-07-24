@@ -1,5 +1,6 @@
 export interface CopilotRequest {
   question: string;
+  model?: string;
 }
 
 export interface CopilotResponse {
