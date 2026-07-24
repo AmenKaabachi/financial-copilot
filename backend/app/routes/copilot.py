@@ -624,6 +624,7 @@ def chat_stream(request: QuestionRequest):
         context_str = json.dumps(context, ensure_ascii=False) if context else ""
         metadata_emitted = False
         done_emitted = False
+        cancelled = False
 
         # Emit immediate SSE status events so the user sees progress before LLM starts
         for msg in status_messages:
@@ -637,6 +638,7 @@ def chat_stream(request: QuestionRequest):
                 context=context_str,
                 model_override=request.model,
             ):
+
                 if meta is not None:
                     # Handle dedicated metadata event (type: "metadata")
                     if meta.get("type") == "metadata":
@@ -691,6 +693,11 @@ def chat_stream(request: QuestionRequest):
                     full_answer += chunk
                     chunk_count += 1
                     yield f"data: {_json({'type': 'token', 'content': chunk})}\n\n"
+
+            # If cancelled, emit cancelled event instead of saving history
+            if cancelled:
+                yield f"data: {_json({'type': 'cancelled', 'message': 'Generation stopped by user', 'request_id': metrics.request_id})}\n\n"
+                return
 
             _save_chat_history(
                 conversation_id=request.conversation_id,

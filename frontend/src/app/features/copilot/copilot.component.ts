@@ -1,7 +1,8 @@
-import { Component, ElementRef, inject, viewChild, afterNextRender, HostListener, OnInit } from '@angular/core';
+import { Component, ElementRef, inject, viewChild, afterNextRender, HostListener, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MarkdownModule } from 'ngx-markdown';
+import { Subscription } from 'rxjs';
 import { CopilotService } from '../../core/services/copilot.service';
 import { CopilotResponse, ResponseMetadata } from '../../core/models/copilot.models';
 import { ConversationService } from '../../core/services/conversation.service';
@@ -22,6 +23,7 @@ interface ChatMessage {
   streaming?: boolean;
   timestamp?: Date;
   warningMessage?: string;
+  cancelled?: boolean;
   responseMetadata?: ResponseMetadata;
 }
 
@@ -32,7 +34,7 @@ interface ChatMessage {
   templateUrl: './copilot.component.html',
   styleUrl: './copilot.component.css'
 })
-export class CopilotComponent implements OnInit {
+export class CopilotComponent implements OnInit, OnDestroy {
   private copilotService = inject(CopilotService);
   private conversationService = inject(ConversationService);
   private scrollAnchor = viewChild<ElementRef<HTMLDivElement>>('scrollAnchor');
@@ -45,6 +47,12 @@ export class CopilotComponent implements OnInit {
   isLoading: boolean = false;
   errorMessage: string = '';
   showScrollButton: boolean = false;
+
+  // Response cancellation
+  currentStreamSubscription: Subscription | null = null;
+  currentGenerationId: string = '';
+  generationTimeout: any = null;
+  private readonly GENERATION_TIMEOUT_MS = 120000; // 2 minutes max
 
   // Model selector
   selectedModel: string = 'auto';
@@ -263,7 +271,39 @@ export class CopilotComponent implements OnInit {
     this.sendToAI(userMessage.content);
   }
 
-  /** Send a new question */
+  /** Cancel the currently ongoing generation (if any) */
+  cancelGeneration(): void {
+    // Unsubscribe to abort the HTTP stream
+    if (this.currentStreamSubscription) {
+      this.currentStreamSubscription.unsubscribe();
+      this.currentStreamSubscription = null;
+    }
+
+    // Clear generation timeout
+    if (this.generationTimeout) {
+      clearTimeout(this.generationTimeout);
+      this.generationTimeout = null;
+    }
+
+    // Mark the last AI message as cancelled (if still streaming)
+    for (let i = this.messages.length - 1; i >= 0; i--) {
+      const msg = this.messages[i];
+      if (msg.role === 'ai' && msg.streaming) {
+        msg.streaming = false;
+        msg.cancelled = true;
+        break;
+      }
+    }
+
+    this.isLoading = false;
+  }
+
+  /** Cleanup on destroy */
+  ngOnDestroy(): void {
+    this.cancelGeneration();
+  }
+
+/** Send a new question */
   askQuestion(): void {
     if (!this.question.trim() || this.isLoading) {
       return;
@@ -282,10 +322,22 @@ export class CopilotComponent implements OnInit {
     this.sendToAI(userQuestion);
   }
 
+  /** Generate a unique generation ID */
+  private generateId(): string {
+    return `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+  }
+
   /** Send a question to the AI service and handle streaming response */
   private sendToAI(question: string): void {
+    // Cancel any previous ongoing generation before starting a new one
+    this.cancelGeneration();
+
     this.isLoading = true;
     this.errorMessage = '';
+
+    // Generate a unique ID for this generation to prevent stale responses
+    const generationId = this.generateId();
+    this.currentGenerationId = generationId;
 
     const aiMessage: ChatMessage = {
       role: 'ai',
@@ -296,9 +348,16 @@ export class CopilotComponent implements OnInit {
     this.messages.push(aiMessage);
     this.scrollToBottom(true);
 
+    // Safety timeout: auto-cancel after 2 minutes
+    this.generationTimeout = setTimeout(() => {
+      if (this.currentGenerationId === generationId) {
+        this.cancelGeneration();
+      }
+    }, this.GENERATION_TIMEOUT_MS);
+
     const ensureConversation = () => {
       if (this.conversationId) {
-        this.startStream(question, aiMessage, this.conversationId);
+        this.startStream(question, aiMessage, this.conversationId, generationId);
       } else {
         console.log('[Copilot] No active conversation, creating one...');
         this.conversationService.createConversation().subscribe({
@@ -306,7 +365,7 @@ export class CopilotComponent implements OnInit {
             console.log('[Copilot] Conversation created:', conversation.id);
             this.conversationService.addConversation(conversation);
             this.conversationId = conversation.id;
-            this.startStream(question, aiMessage, conversation.id);
+            this.startStream(question, aiMessage, conversation.id, generationId);
           },
           error: (err) => {
             console.error('[Copilot] Failed to create conversation:', err);
@@ -321,16 +380,21 @@ export class CopilotComponent implements OnInit {
     ensureConversation();
   }
 
-  private startStream(question: string, aiMessage: ChatMessage, conversationId: string): void {
+  private startStream(question: string, aiMessage: ChatMessage, conversationId: string, generationId: string): void {
     const requestPayload: any = { question, conversation_id: conversationId };
     // Pass model override if user selected a specific model (not "auto")
     if (this.selectedModel && this.selectedModel !== 'auto') {
       requestPayload.model = this.selectedModel;
     }
-    console.log('[Copilot] Sending stream request:', { question: question.slice(0, 50), conversation_id: conversationId, model: requestPayload.model || 'auto' });
+    console.log('[Copilot] Sending stream request:', { question: question.slice(0, 50), conversation_id: conversationId, model: requestPayload.model || 'auto', generationId });
 
-    this.copilotService.askQuestionStream(requestPayload).subscribe({
+    const sub = this.copilotService.askQuestionStream(requestPayload).subscribe({
       next: (event) => {
+        // Ignore stale events from old generations (race condition protection)
+        if (this.currentGenerationId !== generationId) {
+          return;
+        }
+
         if (event.type === 'token' && event.content) {
           aiMessage.content += event.content;
           if (this.isNearBottom()) {
@@ -381,9 +445,18 @@ export class CopilotComponent implements OnInit {
             ttft_ms: aiMessage.timeToFirstTokenMs,
             response_length: aiMessage.content.length,
           });
+        } else if (event.type === 'cancelled') {
+          // Backend acknowledged cancellation
+          aiMessage.streaming = false;
+          aiMessage.cancelled = true;
+          this.isLoading = false;
         }
       },
       error: (err) => {
+        // Only handle error if this is still the current generation
+        if (this.currentGenerationId !== generationId) {
+          return;
+        }
         aiMessage.streaming = false;
         aiMessage.content = aiMessage.content || 'Sorry, something went wrong while generating the response.';
         this.errorMessage = err.message;
@@ -392,10 +465,23 @@ export class CopilotComponent implements OnInit {
         console.error('[Copilot] Stream error:', err);
       },
       complete: () => {
+        // Only handle completion if this is still the current generation
+        if (this.currentGenerationId !== generationId) {
+          return;
+        }
         aiMessage.streaming = false;
         this.isLoading = false;
+        this.currentStreamSubscription = null;
+
+        // Clear timeout
+        if (this.generationTimeout) {
+          clearTimeout(this.generationTimeout);
+          this.generationTimeout = null;
+        }
       }
     });
+
+    this.currentStreamSubscription = sub;
   }
 
 }

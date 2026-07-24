@@ -677,17 +677,64 @@
   box-shadow: none;
 }
 
-.send-spinner {
-  width: 16px;
-  height: 16px;
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  border-top-color: #fff;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
+/* ========== Stop / Cancel Button ========== */
+.stop-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #64748b;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
-@keyframes spin {
-  to { transform: rotate(360deg); }
+.stop-btn:hover {
+  background: #FEF2F2;
+  color: #DC2626;
+  border-color: #FECACA;
+  box-shadow: 0 2px 8px rgba(220, 38, 38, 0.12);
+}
+
+.stop-btn:active {
+  transform: scale(0.97);
+}
+
+.stop-btn svg {
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
+.stop-btn:hover svg {
+  opacity: 1;
+}
+
+/* ========== Cancelled Banner ========== */
+.cancelled-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 8px 14px;
+  background-color: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  border-radius: 8px;
+  color: #64748B;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.cancelled-banner svg {
+  flex-shrink: 0;
+  color: #94A3B8;
 }
 
 .input-hint {

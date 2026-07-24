@@ -152,6 +152,15 @@
                     <span></span><span></span><span></span>
                   </span>
 
+                  <!-- Cancelled / Interrupted Banner -->
+                  <div class="cancelled-banner" *ngIf="message.cancelled">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <circle cx="12" cy="12" r="10"/>
+                      <line x1="8" y1="12" x2="16" y2="12"/>
+                    </svg>
+                    <span>Generation stopped by user</span>
+                  </div>
+
                   <!-- Truncation / Warning Banner -->
                   <div class="warning-banner" *ngIf="message.warningMessage">
                     <svg
@@ -397,23 +406,33 @@
           [(ngModel)]="question"
           (keyup.enter)="askQuestion()"
           placeholder="Message your financial copilot..."
-          [disabled]="isLoading"
           id="chat-input-field"
         />
         <button
+          *ngIf="!isLoading"
           class="send-btn"
           (click)="askQuestion()"
-          [disabled]="isLoading || !question.trim()"
+          [disabled]="!question.trim()"
           aria-label="Send"
           id="send-message-btn"
         >
-          <span *ngIf="!isLoading">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="22" y1="2" x2="11" y2="13" />
-              <polygon points="22 2 15 22 11 13 2 9 22 2" />
-            </svg>
-          </span>
-          <span *ngIf="isLoading" class="send-spinner"></span>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="22" y1="2" x2="11" y2="13" />
+            <polygon points="22 2 15 22 11 13 2 9 22 2" />
+          </svg>
+        </button>
+        <button
+          *ngIf="isLoading"
+          class="stop-btn"
+          (click)="cancelGeneration()"
+          aria-label="Stop generation"
+          id="stop-generation-btn"
+          title="Stop generating"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+            <rect x="4" y="4" width="16" height="16" rx="2" />
+          </svg>
+          <span>Stop</span>
         </button>
       </div>
       <p class="input-hint">AI can make mistakes. Verify financial figures before acting.</p>

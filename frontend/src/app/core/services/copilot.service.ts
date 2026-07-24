@@ -6,7 +6,7 @@ import { environment } from '../../../environments/environment';
 import { CopilotRequest, CopilotResponse, ResponseMetadata } from '../models/copilot.models';
 
 export interface CopilotStreamEvent {
-  type: 'token' | 'done' | 'error' | 'warning' | 'metadata';
+  type: 'token' | 'done' | 'error' | 'warning' | 'metadata' | 'cancelled';
   content?: string;
   model?: string;
   tier?: number;
@@ -80,6 +80,13 @@ export class CopilotService {
                 try {
                   const event = JSON.parse(payload) as CopilotStreamEvent;
                   subscriber.next(event);
+
+                  // 'cancelled' event from backend: complete gracefully
+                  if (event.type === 'cancelled') {
+                    subscriber.complete();
+                    return;
+                  }
+
                   if (event.type === 'error') {
                     subscriber.error(new Error(event.message ?? 'AI service unavailable.'));
                     return;
