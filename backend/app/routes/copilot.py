@@ -29,6 +29,12 @@ from app.services.llm import AIServiceUnavailableError, build_user_prompt, gener
 from app.services.llm.prompts import intent_result_from_route
 from app.services.llm.routing import IntentType, conversation_memory
 from app.services.conversation_state import conversation_state_manager, get_conversation_state
+from app.services.continuation_state import (
+    continuation_state_manager,
+    get_continuation_state,
+    is_continue_request,
+    FinishReason,
+)
 from app.services.analytics import (
     calculate_reconciliation_metrics,
     calculate_anomaly_statistics,
@@ -485,26 +491,44 @@ def chat_stream(request: QuestionRequest):
     session_id = request.session_id or "default"
 
     metrics.begin_stage("Intent Classification")
-    state = get_conversation_state(session_id)
-    if state.active_intent and state.active_intent != "unknown":
-        question_lower = request.question.lower().strip()
-        if any(word in question_lower for word in ("continue", "more", "expand", "detail", "explain more", "tell me more")):
-            if state.active_entity:
-                entities = state.active_entity
-                if entities.get("type") == "invoice":
-                    question_with_entity = f"{request.question} {entities['id']}"
-                    route = classifier.classify(question_with_entity, session_id=session_id)
-                elif entities.get("type") == "anomaly":
-                    question_with_entity = f"{request.question} {entities['id']}"
-                    route = classifier.classify(question_with_entity, session_id=session_id)
+    
+    # Check if this is a continuation request
+    continuation_state = get_continuation_state(session_id)
+    is_continuation = is_continue_request(request.question)
+    
+    if is_continuation and continuation_state and continuation_state.can_continue():
+        # Restore the original context for continuation
+        logger.info(
+            "[Continuation] Detected continue request for session %s (original_prompt=%s, accumulated_length=%s)",
+            session_id, continuation_state.original_user_prompt[:50], len(continuation_state.accumulated_text),
+        )
+        # Use the original prompt for intent classification
+        route = classifier.classify(continuation_state.original_user_prompt, session_id=session_id)
+    else:
+        # Normal new request - clear any existing continuation state
+        if continuation_state:
+            continuation_state_manager.clear_state(session_id)
+        
+        state = get_conversation_state(session_id)
+        if state.active_intent and state.active_intent != "unknown":
+            question_lower = request.question.lower().strip()
+            if any(word in question_lower for word in ("continue", "more", "expand", "detail", "explain more", "tell me more")):
+                if state.active_entity:
+                    entities = state.active_entity
+                    if entities.get("type") == "invoice":
+                        question_with_entity = f"{request.question} {entities['id']}"
+                        route = classifier.classify(question_with_entity, session_id=session_id)
+                    elif entities.get("type") == "anomaly":
+                        question_with_entity = f"{request.question} {entities['id']}"
+                        route = classifier.classify(question_with_entity, session_id=session_id)
+                    else:
+                        route = classifier.classify(request.question, session_id=session_id)
                 else:
                     route = classifier.classify(request.question, session_id=session_id)
             else:
                 route = classifier.classify(request.question, session_id=session_id)
         else:
             route = classifier.classify(request.question, session_id=session_id)
-    else:
-        route = classifier.classify(request.question, session_id=session_id)
 
     intent_result = intent_result_from_route(route)
     metrics.intent = intent_result.intent.value
@@ -596,15 +620,28 @@ def chat_stream(request: QuestionRequest):
         "Generating analysis...",
     ])
 
-    metrics.begin_stage("Context Retrieval")
-    context, database_used = _build_context(request.question, intent_result, session_id=session_id)
-    metrics.database_used = database_used
-    metrics.end_stage()
+    # For continuation requests, use the stored context and prompt
+    if is_continuation and continuation_state and continuation_state.can_continue():
+        context_str = continuation_state.context
+        context = json.loads(context_str) if context_str else None
+        database_used = True  # Assume database was used in original request
+        prompt = continuation_state.final_prompt_sent
+        logger.info(
+            "[Continuation] Using stored context for session %s (context_length=%s, prompt_length=%s)",
+            session_id, len(context_str) if context_str else 0, len(prompt),
+        )
+    else:
+        metrics.begin_stage("Context Retrieval")
+        context, database_used = _build_context(request.question, intent_result, session_id=session_id)
+        metrics.database_used = database_used
+        metrics.end_stage()
 
-    metrics.begin_stage("Prompt Construction")
-    prompt = build_user_prompt(context=context, question=request.question, intent=intent_result.intent)
-    metrics.prompt_size_chars = len(prompt)
-    metrics.end_stage()
+        metrics.begin_stage("Prompt Construction")
+        prompt = build_user_prompt(context=context, question=request.question, intent=intent_result.intent)
+        metrics.prompt_size_chars = len(prompt)
+        metrics.end_stage()
+
+        context_str = json.dumps(context, ensure_ascii=False) if context else ""
 
     rows_retrieved = 0
     if isinstance(context, dict):
@@ -621,28 +658,65 @@ def chat_stream(request: QuestionRequest):
     def _event_stream(metrics=metrics, overhead_time=overhead_time, status_messages=status_messages):
         full_answer = ""
         chunk_count = 0
-        context_str = json.dumps(context, ensure_ascii=False) if context else ""
         metadata_emitted = False
         done_emitted = False
         cancelled = False
+        
+        # Start tracking continuation state if this is a new generation (not a continuation)
+        if not (is_continuation and continuation_state and continuation_state.can_continue()):
+            continuation_state_manager.start_generation(
+                session_id=session_id,
+                conversation_id=request.conversation_id,
+                original_user_prompt=request.question,
+                final_prompt_sent=prompt,
+                conversation_history=[],
+                request_id=metrics.request_id,
+                intent=intent_result.intent.value,
+                context=context_str,
+                max_tokens=intent_result.recommended_max_tokens,
+            )
 
         # Emit immediate SSE status events so the user sees progress before LLM starts
         for msg in status_messages:
             yield f"data: {_json({'type': 'status', 'message': msg})}\n\n"
 
         try:
+            # For continuation requests, prepend the accumulated text
+            if is_continuation and continuation_state and continuation_state.can_continue():
+                full_answer = continuation_state.accumulated_text
+                # Emit the accumulated text as tokens first
+                yield f"data: {_json({'type': 'token', 'content': full_answer})}\n\n"
+                logger.info(
+                    "[Continuation] Prepending accumulated text (%s chars) for session %s",
+                    len(full_answer), session_id,
+                )
+            
             for chunk, meta in stream_answer(
                 prompt,
                 max_tokens=intent_result.recommended_max_tokens,
                 intent=intent_result.intent.value,
                 context=context_str,
                 model_override=request.model,
+                previous_answer=full_answer if is_continuation and continuation_state else None,
             ):
+                # For continuation, detect and remove duplicate text from the new chunk
+                if is_continuation and continuation_state and continuation_state.can_continue() and chunk:
+                    from app.services.llm.manager import _merge_with_overlap_detection
+                    # The chunk might repeat the end of the previous answer
+                    # We'll handle this by merging and then only yielding the new part
+                    merged = _merge_with_overlap_detection(full_answer, chunk)
+                    if merged != full_answer + chunk:
+                        # Overlap was detected and removed
+                        new_part = merged[len(full_answer):]
+                        if new_part:
+                            chunk = new_part
+                            logger.info("[Continuation] Removed duplicate text (%s chars -> %s chars)", len(chunk), len(new_part))
 
                 if meta is not None:
                     # Handle dedicated metadata event (type: "metadata")
                     if meta.get("type") == "metadata":
                         logger.info("[SSE] Emitting metadata event: model=%s, ttft=%s", meta.get("model"), meta.get("time_to_first_token_ms"))
+                        continuation_state_manager.update_model(session_id, meta.get("model", ""))
                         yield f"data: {_json(meta)}\n\n"
                         continue
 
@@ -680,6 +754,8 @@ def chat_stream(request: QuestionRequest):
                             "error=%s | chunks_streamed=%s | chars_streamed=%s",
                             meta.get("message"), chunk_count, len(full_answer),
                         )
+                        # Mark as interrupted due to error
+                        continuation_state_manager.mark_interrupted(session_id, FinishReason.PROVIDER_ERROR)
                         yield f"data: {_json({'type': 'done', 'error': True, 'message': meta.get('message', 'Unknown error'), 'request_id': metrics.request_id})}\n\n"
                         done_emitted = True
                         return
@@ -688,10 +764,23 @@ def chat_stream(request: QuestionRequest):
 
                     full_answer = meta.get("answer", full_answer)
                     done_emitted = True
+                    
+                    # Determine finish reason and mark state accordingly
+                    finish_reason_str = meta.get("finish_reason", "stop")
+                    if finish_reason_str == "length":
+                        continuation_state_manager.mark_interrupted(session_id, FinishReason.MAX_TOKENS)
+                        meta["interrupted"] = True
+                    elif finish_reason_str == "stop":
+                        continuation_state_manager.mark_completed(session_id, FinishReason.COMPLETED)
+                    else:
+                        continuation_state_manager.mark_completed(session_id, FinishReason(finish_reason_str))
+                    
                     yield f"data: {_json({'type': 'done', **meta})}\n\n"
                 else:
                     full_answer += chunk
                     chunk_count += 1
+                    # Update accumulated text in continuation state
+                    continuation_state_manager.update_accumulated_text(session_id, full_answer)
                     yield f"data: {_json({'type': 'token', 'content': chunk})}\n\n"
 
             # If cancelled, emit cancelled event instead of saving history
@@ -738,6 +827,18 @@ def models_health():
             "last_updated": s["last_updated"],
         }
     return result
+
+
+@router.post("/continuation/clear")
+def clear_continuation_state(request: QuestionRequest):
+    """
+    Clear continuation state for a session.
+    Called when user starts a new conversation or deletes a conversation.
+    """
+    session_id = request.session_id or "default"
+    continuation_state_manager.clear_state(session_id)
+    logger.info("[Continuation] Cleared state for session %s", session_id)
+    return {"status": "cleared", "session_id": session_id}
 
 
 @router.post("/benchmark", response_model=BenchmarkResponse)

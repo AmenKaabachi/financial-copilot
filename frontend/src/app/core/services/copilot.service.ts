@@ -116,4 +116,15 @@ export class CopilotService {
     // Return an observable with a user-facing error message.
     return throwError(() => new Error('AI service unavailable. Please try again later.'));
   }
+
+  /**
+   * Clear continuation state for a session.
+   * Called when starting a new conversation or deleting a conversation.
+   */
+  clearContinuationState(sessionId: string = 'default'): Observable<any> {
+    const url = `${this.apiUrl}/continuation/clear`;
+    return this.http.post(url, { session_id: sessionId }).pipe(
+      catchError(this.handleError)
+    );
+  }
 }

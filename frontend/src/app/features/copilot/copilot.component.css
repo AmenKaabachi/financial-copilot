@@ -737,6 +737,26 @@
   color: #94A3B8;
 }
 
+/* ========== Interrupted Banner ========== */
+.interrupted-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 8px 14px;
+  background-color: #FEF3C7;
+  border: 1px solid #FCD34D;
+  border-radius: 8px;
+  color: #92400E;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.interrupted-banner svg {
+  flex-shrink: 0;
+  color: #D97706;
+}
+
 .input-hint {
   margin: 8px 0 0;
   text-align: center;

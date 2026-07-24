@@ -161,8 +161,18 @@
                     <span>Generation stopped by user</span>
                   </div>
 
+                  <!-- Interrupted Banner (can continue) -->
+                  <div class="interrupted-banner" *ngIf="message.interrupted && !message.streaming && !message.cancelled">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <circle cx="12" cy="12" r="10"/>
+                      <line x1="12" y1="8" x2="12" y2="12"/>
+                      <line x1="12" y1="16" x2="12.01" y2="16"/>
+                    </svg>
+                    <span>Response interrupted — Click "Continue" to resume</span>
+                  </div>
+
                   <!-- Truncation / Warning Banner -->
-                  <div class="warning-banner" *ngIf="message.warningMessage">
+                  <div class="warning-banner" *ngIf="message.warningMessage && !message.interrupted">
                     <svg
                       class="warning-icon"
                       width="16"

@@ -598,7 +598,7 @@ def _try_model_stream(
     }
 
 
-def stream_answer(prompt: str, max_tokens: int = 900, intent: str = "unknown", context: str = "", model_override: Optional[str] = None):
+def stream_answer(prompt: str, max_tokens: int = 900, intent: str = "unknown", context: str = "", model_override: Optional[str] = None, previous_answer: Optional[str] = None):
     """
     Stream an answer from the configured LLM models with strict lifecycle enforcement.
 
@@ -614,12 +614,20 @@ def stream_answer(prompt: str, max_tokens: int = 900, intent: str = "unknown", c
     5. The "All models failed" error is only emitted when NO chunks were sent.
     
     If model_override is provided, only that specific model is used (no fallback).
+    
+    If previous_answer is provided, this is a continuation request. The model will be instructed
+    to continue from where the previous answer left off.
     """
     start_time = time.perf_counter()
     total_attempts = 0
     model_errors: List[str] = []
     fallback_used = False
     max_tokens = _get_token_limit_for_intent(intent, max_tokens)
+
+    # For continuation requests, modify the prompt to include the previous answer
+    if previous_answer:
+        prompt = f"Previous response:\n{previous_answer}\n\nContinue the response from where it stopped. Do not repeat the previous content. Continue directly from the last sentence.\n\nOriginal question: {prompt}"
+        logger.info("[Continuation] Modified prompt for continuation (previous_answer_length=%s)", len(previous_answer))
 
     system_prompt = build_system_prompt(context, intent=intent)
 

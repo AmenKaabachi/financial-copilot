@@ -29,6 +29,7 @@ export interface ResponseMetadata {
   total_tokens?: number;
   estimated_cost_usd?: number;
   cached?: boolean;
+  interrupted?: boolean;
   /** Additional fields can be added as needed */
   [key: string]: unknown;
 }

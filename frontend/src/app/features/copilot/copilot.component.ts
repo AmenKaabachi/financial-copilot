@@ -25,6 +25,8 @@ interface ChatMessage {
   warningMessage?: string;
   cancelled?: boolean;
   responseMetadata?: ResponseMetadata;
+  interrupted?: boolean;
+  canContinue?: boolean;
 }
 
 @Component({
@@ -125,6 +127,10 @@ export class CopilotComponent implements OnInit, OnDestroy {
     this.errorMessage = '';
     this.question = '';
     this.scrollToBottom(false);
+    // Clear continuation state for the new conversation
+    this.copilotService.clearContinuationState().subscribe({
+      error: (err) => console.error('[Copilot] Failed to clear continuation state:', err)
+    });
   }
 
   /** Load messages from a previous conversation */
@@ -148,6 +154,10 @@ export class CopilotComponent implements OnInit, OnDestroy {
     this.messages = fullMessages;
     this.historyPanelOpen = false;
     this.scrollToBottom(false);
+    // Clear continuation state when loading a different conversation
+    this.copilotService.clearContinuationState().subscribe({
+      error: (err) => console.error('[Copilot] Failed to clear continuation state:', err)
+    });
   }
 
   /** Handle conversation deleted from history */
@@ -155,6 +165,10 @@ export class CopilotComponent implements OnInit, OnDestroy {
     if (this.conversationId === conversationId) {
       this.conversationId = null;
       this.messages = [];
+      // Clear continuation state when deleting the current conversation
+      this.copilotService.clearContinuationState().subscribe({
+        error: (err) => console.error('[Copilot] Failed to clear continuation state:', err)
+      });
     }
   }
 
@@ -426,6 +440,9 @@ export class CopilotComponent implements OnInit, OnDestroy {
           aiMessage.timeToFirstTokenMs = event.time_to_first_token_ms ?? aiMessage.timeToFirstTokenMs ?? undefined;
           aiMessage.streaming = false;
           aiMessage.timestamp = new Date();
+          // Check if response was interrupted
+          aiMessage.interrupted = (event['interrupted'] as boolean | undefined) ?? false;
+          aiMessage.canContinue = aiMessage.interrupted;
           // Ensure responseMetadata is populated
           if (!aiMessage.responseMetadata) {
             aiMessage.responseMetadata = {
@@ -433,7 +450,10 @@ export class CopilotComponent implements OnInit, OnDestroy {
               provider: aiMessage.provider || 'OpenRouter',
               time_to_first_token_ms: aiMessage.timeToFirstTokenMs ?? 0,
               finish_reason: event['finish_reason'] as string | undefined,
+              interrupted: aiMessage.interrupted,
             };
+          } else {
+            aiMessage.responseMetadata.interrupted = aiMessage.interrupted;
           }
           this.scrollToBottom(true);
           this.loadConversations();
@@ -444,6 +464,7 @@ export class CopilotComponent implements OnInit, OnDestroy {
             response_time: aiMessage.responseTime,
             ttft_ms: aiMessage.timeToFirstTokenMs,
             response_length: aiMessage.content.length,
+            interrupted: aiMessage.interrupted,
           });
         } else if (event.type === 'cancelled') {
           // Backend acknowledged cancellation
