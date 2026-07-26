@@ -154,10 +154,6 @@ export class CopilotComponent implements OnInit, OnDestroy {
     this.messages = fullMessages;
     this.historyPanelOpen = false;
     this.scrollToBottom(false);
-    // Clear continuation state when loading a different conversation
-    this.copilotService.clearContinuationState().subscribe({
-      error: (err) => console.error('[Copilot] Failed to clear continuation state:', err)
-    });
   }
 
   /** Handle conversation deleted from history */
@@ -165,10 +161,6 @@ export class CopilotComponent implements OnInit, OnDestroy {
     if (this.conversationId === conversationId) {
       this.conversationId = null;
       this.messages = [];
-      // Clear continuation state when deleting the current conversation
-      this.copilotService.clearContinuationState().subscribe({
-        error: (err) => console.error('[Copilot] Failed to clear continuation state:', err)
-      });
     }
   }
 
@@ -435,7 +427,8 @@ export class CopilotComponent implements OnInit, OnDestroy {
           aiMessage.model = event.model || aiMessage.model || 'unknown';
           aiMessage.tier = event.tier;
           aiMessage.fallbackUsed = event.fallback_used ?? false;
-          aiMessage.responseTime = event.response_time ?? 0;
+          // Use authoritative total_ms from backend if available (milliseconds), else fallback to response_time (seconds)
+          aiMessage.responseTime = event['total_ms'] != null ? (event['total_ms'] as number) / 1000 : (event.response_time ?? 0);
           aiMessage.provider = event.provider || aiMessage.provider || 'OpenRouter';
           aiMessage.timeToFirstTokenMs = event.time_to_first_token_ms ?? aiMessage.timeToFirstTokenMs ?? undefined;
           aiMessage.streaming = false;
@@ -462,6 +455,7 @@ export class CopilotComponent implements OnInit, OnDestroy {
             provider: aiMessage.provider,
             fallback: aiMessage.fallbackUsed,
             response_time: aiMessage.responseTime,
+            total_ms: event['total_ms'],
             ttft_ms: aiMessage.timeToFirstTokenMs,
             response_length: aiMessage.content.length,
             interrupted: aiMessage.interrupted,

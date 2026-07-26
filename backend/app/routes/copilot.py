@@ -23,8 +23,10 @@ from app.services.database import (
     get_recent_reconciliation,
     get_recommendation_context,
     get_supabase_client,
+    retrieve_context,
 )
 from app.services.financial_rules import build_financial_context
+from app.services.context_formatter import format_financial_context, estimate_context_tokens
 from app.services.llm import AIServiceUnavailableError, build_user_prompt, generate_answer, stream_answer, IntentClassifier
 from app.services.llm.prompts import intent_result_from_route
 from app.services.llm.routing import IntentType, conversation_memory
@@ -54,14 +56,15 @@ classifier = IntentClassifier()
 
 # Direct-answer handler: maps keys from DIRECT_ANSWER_PATTERNS in routing.py
 # to database queries that return simple counts, skipping the LLM entirely.
+# Note: These use aggregated metrics instead of full datasets to avoid context explosion
 _DIRECT_ANSWER_HANDLERS = {
-    "count_invoices": lambda: len(get_dataset_summary()["invoices"]),
-    "count_transactions": lambda: len(get_dataset_summary()["transactions"]),
-    "count_anomalies": lambda: len(get_dataset_summary()["anomalies"]),
+    "count_invoices": lambda: retrieve_context("financial_analysis", "", {}).get("summary", {}).get("invoice_count", 0),
+    "count_transactions": lambda: retrieve_context("financial_analysis", "", {}).get("summary", {}).get("payment_count", 0),
+    "count_anomalies": lambda: retrieve_context("financial_analysis", "", {}).get("summary", {}).get("anomaly_count", 0),
     "count_high_severity": lambda: len(get_high_severity_anomalies(limit=10000)),
     "count_duplicate": lambda: len(get_duplicate_payments(limit=10000)),
     "count_missing": lambda: len(get_missing_payments(limit=10000)),
-    "count_reconciliations": lambda: len(get_dataset_summary()["reconciliations"]),
+    "count_reconciliations": lambda: retrieve_context("financial_analysis", "", {}).get("summary", {}).get("reconciliation_count", 0),
 }
 
 # Response templates keyed by direct_answer_key
@@ -115,6 +118,7 @@ class QuestionRequest(BaseModel):
     session_id: Optional[str] = "default"
     conversation_id: Optional[str] = None
     model: Optional[str] = None
+    max_tokens: Optional[int] = None
 
 
 def _json(payload: dict) -> str:
@@ -143,27 +147,53 @@ def _fast_conversational_response(intent_result):
     }
 
 
-def _dataset_review_context(question: str) -> dict:
-    summary = get_dataset_summary()
-    return {
-        "summary": summary["metrics"],
-        "invoices": summary["invoices"],
-        "transactions": summary["transactions"],
-        "anomalies": summary["anomalies"],
-        "reconciliations": summary["reconciliations"],
-        "analytics": {
-            "reconciliation_metrics": calculate_reconciliation_metrics(summary["reconciliations"]),
-            "anomaly_statistics": calculate_anomaly_statistics(summary["anomalies"]),
-            "payment_statistics": calculate_payment_statistics(summary["invoices"], summary["transactions"]),
-        },
-        "high_severity_anomalies": get_high_severity_anomalies(limit=5),
-        "duplicate_payments": get_duplicate_payments(limit=5),
-        "missing_payments": get_missing_payments(limit=5),
-        "recent_reconciliation": get_recent_reconciliation(limit=3),
-        "messages": [
-            "Executive dashboard assembled from invoices, payments, anomalies, and reconciliation records."
-        ],
-    }
+def _dataset_review_context(question: str, entities: dict = None) -> dict:
+    """Build context for dataset review using smart retrieval."""
+    if entities is None:
+        entities = {}
+    context = retrieve_context("dataset_review", question, entities)
+    # Add analytics if sample data is available
+    if "sample_invoices" in context and "sample_transactions" in context:
+        context["analytics"] = {
+            "reconciliation_metrics": calculate_reconciliation_metrics(context.get("sample_invoices", [])),
+            "anomaly_statistics": calculate_anomaly_statistics(context.get("high_severity_anomalies", [])),
+            "payment_statistics": calculate_payment_statistics(
+                context.get("sample_invoices", []), 
+                context.get("sample_transactions", [])
+            ),
+        }
+    context["messages"] = [
+        "Executive dashboard assembled from aggregated metrics and sample data."
+    ]
+    return context
+
+
+def _is_broad_query(question: str) -> bool:
+    """Detect if a question is a broad/general query vs a specific investigation.
+
+    Broad queries lack specific entity references (invoice IDs, anomaly IDs, etc.)
+    and use general language like "why is payment missing" or "explain anomalies".
+    """
+    import re
+    # If the question references a specific entity, it's a specific query
+    if re.search(r'\b(INV\d{4,8}|TX\d{4,8}|ANM\d{4,8})\b', question, re.IGNORECASE):
+        return False
+    # Broad indicators: no specific entity, general language
+    broad_indicators = [
+        r'\bwhy\s+is\b',
+        r'\bexplain\b',
+        r'\bgive\s+me\s+an\s+overview\b',
+        r'\bsummarize\b',
+        r'\bwhat\s+anomal',
+        r'\breview\b',
+        r'\banalyze\b',
+        r'\bhow\s+many\b',
+        r'\btell\s+me\s+about\b',
+    ]
+    for pattern in broad_indicators:
+        if re.search(pattern, question, re.IGNORECASE):
+            return True
+    return False
 
 
 def _build_context(question: str, intent_result, session_id: str = "default") -> tuple[dict | None, bool]:
@@ -171,6 +201,7 @@ def _build_context(question: str, intent_result, session_id: str = "default") ->
     entities = intent_result.extracted_entities
     invoice_id = entities.get("invoice_id")
     anomaly_id = entities.get("anomaly_id")
+    is_broad = _is_broad_query(question)
 
     if intent in {IntentType.GREETING, IntentType.GOODBYE, IntentType.THANKS, IntentType.SMALL_TALK, IntentType.ASSISTANT_IDENTITY, IntentType.ASSISTANT_CAPABILITIES}:
         return None, False
@@ -191,6 +222,8 @@ def _build_context(question: str, intent_result, session_id: str = "default") ->
         )
         if enriched:
             base.update(enriched)
+        # Format context through context_formatter
+        base = format_financial_context(base, intent=intent.value, is_broad_query=is_broad)
         conversation_state_manager.update_state(
             session_id,
             active_intent=intent.value,
@@ -210,35 +243,25 @@ def _build_context(question: str, intent_result, session_id: str = "default") ->
             last_tool_used="anomaly_lookup",
             last_response_status="completed",
         )
-        return {
-            "anomaly": get_anomaly(anomaly_id),
-        }, True
+        raw = {"anomaly": get_anomaly(anomaly_id)}
+        return format_financial_context(raw, intent=intent.value, is_broad_query=is_broad), True
 
     if intent in {IntentType.DATASET_REVIEW, IntentType.REPORT_SUMMARY, IntentType.RECOMMENDATIONS}:
-        if intent == IntentType.RECOMMENDATIONS:
-            summary = get_dataset_summary()
-            context = {
-                "summary": summary["metrics"],
-                "analytics": {
-                    "reconciliation_metrics": calculate_reconciliation_metrics(summary["reconciliations"]),
-                    "anomaly_statistics": calculate_anomaly_statistics(summary["anomalies"]),
-                    "payment_statistics": calculate_payment_statistics(summary["invoices"], summary["transactions"]),
-                },
-                "high_severity_anomalies": get_high_severity_anomalies(limit=5),
-                "duplicate_payments": get_duplicate_payments(limit=5),
-                "missing_payments": get_missing_payments(limit=5),
-                "recent_reconciliation": get_recent_reconciliation(limit=3),
-                "messages": ["Recommend action based on the retrieved dataset summary."],
+        # Use smart retrieval for all these intents
+        context = retrieve_context(intent.value, question, entities)
+        # Add analytics if sample data is available
+        if "sample_invoices" in context and "sample_transactions" in context:
+            context["analytics"] = {
+                "reconciliation_metrics": calculate_reconciliation_metrics(context.get("sample_invoices", [])),
+                "anomaly_statistics": calculate_anomaly_statistics(context.get("high_severity_anomalies", [])),
+                "payment_statistics": calculate_payment_statistics(
+                    context.get("sample_invoices", []), 
+                    context.get("sample_transactions", [])
+                ),
             }
-            conversation_state_manager.update_state(
-                session_id,
-                active_intent=intent.value,
-                last_analysis_type=intent.value,
-                last_tool_used="recommendations",
-                last_response_status="completed",
-            )
-            return context, True
-        context = _dataset_review_context(question)
+        context["messages"] = ["Recommend action based on the retrieved dataset summary."]
+        # Format context through context_formatter
+        context = format_financial_context(context, intent=intent.value, is_broad_query=is_broad)
         conversation_state_manager.update_state(
             session_id,
             active_intent=intent.value,
@@ -249,16 +272,18 @@ def _build_context(question: str, intent_result, session_id: str = "default") ->
         return context, True
 
     if intent == IntentType.COMPARISON:
-        context = {
-            "summary": get_dataset_summary()["metrics"],
-            "analytics": {
-                "reconciliation_metrics": calculate_reconciliation_metrics(get_dataset_summary()["reconciliations"]),
-                "anomaly_statistics": calculate_anomaly_statistics(get_dataset_summary()["anomalies"]),
-                "payment_statistics": calculate_payment_statistics(get_dataset_summary()["invoices"], get_dataset_summary()["transactions"]),
-            },
-            "recent_reconciliation": get_recent_reconciliation(limit=3),
-            "high_severity_anomalies": get_high_severity_anomalies(limit=5),
-        }
+        context = retrieve_context(intent.value, question, entities)
+        # Add analytics if sample data is available
+        if "sample_invoices" in context and "sample_transactions" in context:
+            context["analytics"] = {
+                "reconciliation_metrics": calculate_reconciliation_metrics(context.get("sample_invoices", [])),
+                "anomaly_statistics": calculate_anomaly_statistics(context.get("high_severity_anomalies", [])),
+                "payment_statistics": calculate_payment_statistics(
+                    context.get("sample_invoices", []), 
+                    context.get("sample_transactions", [])
+                ),
+            }
+        context = format_financial_context(context, intent=intent.value, is_broad_query=is_broad)
         conversation_state_manager.update_state(
             session_id,
             active_intent=intent.value,
@@ -269,15 +294,18 @@ def _build_context(question: str, intent_result, session_id: str = "default") ->
         return context, True
 
     if intent == IntentType.TREND_ANALYSIS:
-        context = {
-            "summary": get_dataset_summary()["metrics"],
-            "analytics": {
-                "reconciliation_metrics": calculate_reconciliation_metrics(get_dataset_summary()["reconciliations"]),
-                "anomaly_statistics": calculate_anomaly_statistics(get_dataset_summary()["anomalies"]),
-                "payment_statistics": calculate_payment_statistics(get_dataset_summary()["invoices"], get_dataset_summary()["transactions"]),
-            },
-            "recent_reconciliation": get_recent_reconciliation(limit=3),
-        }
+        context = retrieve_context(intent.value, question, entities)
+        # Add analytics if sample data is available
+        if "sample_invoices" in context and "sample_transactions" in context:
+            context["analytics"] = {
+                "reconciliation_metrics": calculate_reconciliation_metrics(context.get("sample_invoices", [])),
+                "anomaly_statistics": calculate_anomaly_statistics(context.get("high_severity_anomalies", [])),
+                "payment_statistics": calculate_payment_statistics(
+                    context.get("sample_invoices", []), 
+                    context.get("sample_transactions", [])
+                ),
+            }
+        context = format_financial_context(context, intent=intent.value, is_broad_query=is_broad)
         conversation_state_manager.update_state(
             session_id,
             active_intent=intent.value,
@@ -300,6 +328,7 @@ def _build_context(question: str, intent_result, session_id: str = "default") ->
         )
         if enriched:
             base.update(enriched)
+        base = format_financial_context(base, intent=intent.value, is_broad_query=is_broad)
         conversation_state_manager.update_state(
             session_id,
             active_intent=intent.value,
@@ -319,21 +348,22 @@ def _build_context(question: str, intent_result, session_id: str = "default") ->
             last_tool_used="anomaly_lookup",
             last_response_status="completed",
         )
-        return {"anomaly": get_anomaly(anomaly_id)}, True
+        raw = {"anomaly": get_anomaly(anomaly_id)}
+        return format_financial_context(raw, intent=intent.value, is_broad_query=is_broad), True
 
-    summary = get_dataset_summary()
-    context = {
-        "summary": summary["metrics"],
-        "analytics": {
-            "reconciliation_metrics": calculate_reconciliation_metrics(summary["reconciliations"]),
-            "anomaly_statistics": calculate_anomaly_statistics(summary["anomalies"]),
-            "payment_statistics": calculate_payment_statistics(summary["invoices"], summary["transactions"]),
-        },
-        "high_severity_anomalies": get_high_severity_anomalies(limit=5),
-        "duplicate_payments": get_duplicate_payments(limit=5),
-        "missing_payments": get_missing_payments(limit=5),
-        "recent_reconciliation": get_recent_reconciliation(limit=3),
-    }
+    # Default: use smart retrieval for financial_analysis
+    context = retrieve_context(intent.value, question, entities)
+    # Add analytics if sample data is available
+    if "sample_invoices" in context and "sample_transactions" in context:
+        context["analytics"] = {
+            "reconciliation_metrics": calculate_reconciliation_metrics(context.get("sample_invoices", [])),
+            "anomaly_statistics": calculate_anomaly_statistics(context.get("high_severity_anomalies", [])),
+            "payment_statistics": calculate_payment_statistics(
+                context.get("sample_invoices", []), 
+                context.get("sample_transactions", [])
+            ),
+        }
+    context = format_financial_context(context, intent=intent.value, is_broad_query=is_broad)
     conversation_state_manager.update_state(
         session_id,
         active_intent=intent.value,
@@ -408,15 +438,21 @@ def chat(request: QuestionRequest):
         metrics.log_summary()
         return response
 
+    # ── Latency instrumentation ──
+    t_retrieval_start = time.perf_counter()
+
     metrics.begin_stage("Context Retrieval")
     context, database_used = _build_context(request.question, intent_result, session_id=session_id)
     metrics.database_used = database_used
     metrics.end_stage()
+    retrieval_ms = round((time.perf_counter() - t_retrieval_start) * 1000)
 
+    t_prompt_start = time.perf_counter()
     metrics.begin_stage("Prompt Construction")
     prompt = build_user_prompt(context=context, question=request.question, intent=intent_result.intent)
     metrics.prompt_size_chars = len(prompt)
     metrics.end_stage()
+    prompt_build_ms = round((time.perf_counter() - t_prompt_start) * 1000)
 
     rows_retrieved = 0
     if isinstance(context, dict):
@@ -427,7 +463,15 @@ def chat(request: QuestionRequest):
                 rows_retrieved += 1
     metrics.rows_retrieved = rows_retrieved
 
+    # Log context size diagnostics
+    context_tokens_est = estimate_context_tokens(context) if context else 0
+    logger.warning(
+        "[LATENCY BREAKDOWN] retrieval=%sms | prompt_build=%sms | context_tokens_est=%s | rows_retrieved=%s",
+        retrieval_ms, prompt_build_ms, context_tokens_est, rows_retrieved,
+    )
+
     try:
+        t_llm_start = time.perf_counter()
         metrics.begin_stage("LLM Generation")
         context_str = json.dumps(context, ensure_ascii=False) if context else ""
         result = generate_answer(
@@ -437,6 +481,12 @@ def chat(request: QuestionRequest):
             context=context_str,
         )
         metrics.end_stage()
+        llm_total_ms = round((time.perf_counter() - t_llm_start) * 1000)
+        total_ms = round((time.perf_counter() - t_retrieval_start) * 1000)
+        logger.warning(
+            "[LATENCY BREAKDOWN] llm_generation=%sms | total=%sms | model=%s | finish_reason=%s",
+            llm_total_ms, total_ms, result.get("model", "unknown"), result.get("finish_reason", "unknown"),
+        )
     except AIServiceUnavailableError as exc:
         metrics.error = "All models failed"
         metrics.end_stage()
@@ -488,6 +538,7 @@ def chat(request: QuestionRequest):
 @router.post("/chat/stream")
 def chat_stream(request: QuestionRequest):
     metrics = RequestMetrics.new()
+    t_request_start = time.perf_counter()
     session_id = request.session_id or "default"
 
     metrics.begin_stage("Intent Classification")
@@ -620,47 +671,75 @@ def chat_stream(request: QuestionRequest):
         "Generating analysis...",
     ])
 
+    effective_max_tokens = request.max_tokens or intent_result.recommended_max_tokens
+
     # For continuation requests, use the stored context and prompt
     if is_continuation and continuation_state and continuation_state.can_continue():
         context_str = continuation_state.context
         context = json.loads(context_str) if context_str else None
         database_used = True  # Assume database was used in original request
         prompt = continuation_state.final_prompt_sent
+        if request.max_tokens is None and continuation_state.max_tokens:
+            effective_max_tokens = continuation_state.max_tokens
+        retrieval_ms = 0
+        prompt_build_ms = 0
+        overhead_time = 0  # No overhead for continuation (no intent classification, context retrieval, or prompt construction)
+        rows_retrieved = 0
         logger.info(
             "[Continuation] Using stored context for session %s (context_length=%s, prompt_length=%s)",
             session_id, len(context_str) if context_str else 0, len(prompt),
         )
     else:
+        # ── Latency instrumentation ──
+        t_retrieval_start = time.perf_counter()
+
         metrics.begin_stage("Context Retrieval")
         context, database_used = _build_context(request.question, intent_result, session_id=session_id)
         metrics.database_used = database_used
         metrics.end_stage()
+        retrieval_ms = round((time.perf_counter() - t_retrieval_start) * 1000)
 
+        t_prompt_start = time.perf_counter()
         metrics.begin_stage("Prompt Construction")
         prompt = build_user_prompt(context=context, question=request.question, intent=intent_result.intent)
         metrics.prompt_size_chars = len(prompt)
         metrics.end_stage()
+        prompt_build_ms = round((time.perf_counter() - t_prompt_start) * 1000)
 
         context_str = json.dumps(context, ensure_ascii=False) if context else ""
 
-    rows_retrieved = 0
-    if isinstance(context, dict):
-        for v in context.values():
-            if isinstance(v, list):
-                rows_retrieved += len(v)
-            elif v:
-                rows_retrieved += 1
-    metrics.rows_retrieved = rows_retrieved
+        rows_retrieved = 0
+        if isinstance(context, dict):
+            for v in context.values():
+                if isinstance(v, list):
+                    rows_retrieved += len(v)
+                elif v:
+                    rows_retrieved += 1
+        metrics.rows_retrieved = rows_retrieved
 
-    overhead_time = metrics.get_stage_ms("Intent Classification") + metrics.get_stage_ms("Context Retrieval") + metrics.get_stage_ms("Prompt Construction")
-    estimated_tokens = len(prompt) // 4
+        overhead_time = metrics.get_stage_ms("Intent Classification") + metrics.get_stage_ms("Context Retrieval") + metrics.get_stage_ms("Prompt Construction")
+        estimated_tokens = len(prompt) // 4
 
-    def _event_stream(metrics=metrics, overhead_time=overhead_time, status_messages=status_messages):
+        # Log context size diagnostics
+        context_tokens_est = estimate_context_tokens(context) if context else 0
+        logger.warning(
+            "[LATENCY BREAKDOWN] retrieval=%sms | prompt_build=%sms | context_tokens_est=%s | rows_retrieved=%s",
+            retrieval_ms, prompt_build_ms, context_tokens_est, rows_retrieved,
+        )
+
+    def _event_stream():
+        nonlocal overhead_time, retrieval_ms, prompt_build_ms
+        nonlocal context_str, context, database_used, prompt
+        nonlocal status_messages, is_continuation, continuation_state
+        nonlocal metrics, session_id, request, intent_result
+        nonlocal rows_retrieved
+        
         full_answer = ""
         chunk_count = 0
         metadata_emitted = False
         done_emitted = False
         cancelled = False
+        llm_first_token_ms = 0
         
         # Start tracking continuation state if this is a new generation (not a continuation)
         if not (is_continuation and continuation_state and continuation_state.can_continue()):
@@ -673,12 +752,14 @@ def chat_stream(request: QuestionRequest):
                 request_id=metrics.request_id,
                 intent=intent_result.intent.value,
                 context=context_str,
-                max_tokens=intent_result.recommended_max_tokens,
+                max_tokens=effective_max_tokens,
             )
 
         # Emit immediate SSE status events so the user sees progress before LLM starts
         for msg in status_messages:
             yield f"data: {_json({'type': 'status', 'message': msg})}\n\n"
+
+        t_llm_start = time.perf_counter()
 
         try:
             # For continuation requests, prepend the accumulated text
@@ -693,24 +774,20 @@ def chat_stream(request: QuestionRequest):
             
             for chunk, meta in stream_answer(
                 prompt,
-                max_tokens=intent_result.recommended_max_tokens,
+                max_tokens=effective_max_tokens,
                 intent=intent_result.intent.value,
                 context=context_str,
                 model_override=request.model,
                 previous_answer=full_answer if is_continuation and continuation_state else None,
             ):
-                # For continuation, detect and remove duplicate text from the new chunk
-                if is_continuation and continuation_state and continuation_state.can_continue() and chunk:
-                    from app.services.llm.manager import _merge_with_overlap_detection
-                    # The chunk might repeat the end of the previous answer
-                    # We'll handle this by merging and then only yielding the new part
-                    merged = _merge_with_overlap_detection(full_answer, chunk)
-                    if merged != full_answer + chunk:
-                        # Overlap was detected and removed
-                        new_part = merged[len(full_answer):]
-                        if new_part:
-                            chunk = new_part
-                            logger.info("[Continuation] Removed duplicate text (%s chars -> %s chars)", len(chunk), len(new_part))
+                # Track first token latency
+                if chunk and llm_first_token_ms == 0:
+                    llm_first_token_ms = round((time.perf_counter() - t_llm_start) * 1000)
+                    total_ms = round((time.perf_counter() - t_request_start) * 1000)
+                    logger.warning(
+                        "[LATENCY BREAKDOWN] retrieval=%sms | prompt_build=%sms | llm_first_token=%sms | total=%sms",
+                        retrieval_ms, prompt_build_ms, llm_first_token_ms, total_ms,
+                    )
 
                 if meta is not None:
                     # Handle dedicated metadata event (type: "metadata")
@@ -726,12 +803,19 @@ def chat_stream(request: QuestionRequest):
                         continue
 
                     metadata_emitted = True
-                    meta["response_time"] += overhead_time
+                    meta["response_time"] = meta.get("response_time", 0) + overhead_time / 1000
                     meta["intent"] = intent_result.intent.value
                     meta["database_used"] = database_used
                     meta["rows_retrieved"] = rows_retrieved
                     meta["prompt_size"] = len(prompt)
                     meta["request_id"] = metrics.request_id
+                    # Add latency breakdown to metadata
+                    meta["retrieval_ms"] = retrieval_ms
+                    meta["prompt_build_ms"] = prompt_build_ms
+                    meta["llm_first_token_ms"] = llm_first_token_ms
+                    meta["fallback_count"] = meta.get("attempts", 1) - 1
+                    # Add authoritative total_ms from RequestMetrics (milliseconds)
+                    meta["total_ms"] = round(metrics.elapsed_since_start() * 1000)
 
                     # Populate metrics from final metadata
                     metrics.model = meta.get("model", "")
@@ -777,6 +861,18 @@ def chat_stream(request: QuestionRequest):
                     
                     yield f"data: {_json({'type': 'done', **meta})}\n\n"
                 else:
+                    # For continuation, detect and remove duplicate text from the new chunk
+                    if is_continuation and continuation_state and continuation_state.can_continue() and chunk:
+                        from app.services.llm.manager import _merge_with_overlap_detection
+                        # The chunk might repeat the end of the previous answer
+                        merged = _merge_with_overlap_detection(full_answer, chunk)
+                        if merged != full_answer + chunk:
+                            # Overlap was detected and removed
+                            new_part = merged[len(full_answer):]
+                            if new_part:
+                                chunk = new_part
+                                logger.info("[Continuation] Removed duplicate text (%s chars -> %s chars)", len(chunk), len(new_part))
+                    
                     full_answer += chunk
                     chunk_count += 1
                     # Update accumulated text in continuation state
@@ -834,11 +930,27 @@ def clear_continuation_state(request: QuestionRequest):
     """
     Clear continuation state for a session.
     Called when user starts a new conversation or deletes a conversation.
+    Full path: /copilot/continuation/clear
     """
     session_id = request.session_id or "default"
     continuation_state_manager.clear_state(session_id)
     logger.info("[Continuation] Cleared state for session %s", session_id)
     return {"status": "cleared", "session_id": session_id}
+
+
+@router.post("/chat/continuation/clear")
+def clear_continuation_state_alt(
+    session_id: Optional[str] = None,
+):
+    """
+    Clear continuation state for a session (alternative path).
+    Accepts empty body — session_id defaults to "default" if omitted.
+    Called by frontend at /copilot/chat/continuation/clear.
+    """
+    sid = session_id or "default"
+    continuation_state_manager.clear_state(sid)
+    logger.info("[Continuation] Cleared state for session %s (via /chat/continuation/clear)", sid)
+    return {"status": "cleared", "session_id": sid}
 
 
 @router.post("/benchmark", response_model=BenchmarkResponse)
@@ -902,4 +1014,3 @@ def run_benchmark(request: BenchmarkRequest):
         results=benchmark_results,
         rankings=rankings,
     )
-

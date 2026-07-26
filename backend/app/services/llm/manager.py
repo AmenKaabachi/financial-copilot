@@ -17,7 +17,15 @@ from openai import (
 
 from app.services.llm.client import get_openrouter_client
 from app.services.llm.models import ModelConfig, ModelTier, get_enabled_models, get_model_tiers
-from app.services.llm.prompts import build_system_prompt
+from app.services.llm.prompts import build_system_prompt, CONTINUATION_USER_MESSAGE
+from app.services.token_counter import count_tokens, estimate_prompt_tokens, get_model_context_limit
+from app.services.context_budget import (
+    calculate_budget,
+    validate_budget,
+    log_diagnostics,
+    ContextOverflowError,
+    get_safe_max_tokens,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -58,18 +66,23 @@ STREAM_READ_TIMEOUTS: Dict[str, float] = {
     "dataset_review": 90,
 }
 
+# Intent-aware max output token limits.
+# These are the default maximum outputs per intent.
+# The actual output budget is capped by the context budget system
+# in context_budget.py (MIN_OUTPUT_BY_INTENT provides the floor).
 TOKEN_LIMITS = {
-    "invoice_lookup": 800,
-    "anomaly_lookup": 800,
-    "reconciliation_analysis": 800,
-    "report_summary": 900,
-    "dataset_review": 3000,
-    "trend_analysis": 800,
-    "comparison": 800,
-    "recommendations": 800,
-    "financial_analysis": 900,
-    "general_knowledge": 384,
-    "financial_general": 700,
+    "invoice_lookup": 2000,
+    "anomaly_lookup": 2000,
+    "anomaly_explanation": 3000,
+    "reconciliation_analysis": 3000,
+    "report_summary": 2500,
+    "dataset_review": 4000,
+    "trend_analysis": 2000,
+    "comparison": 2000,
+    "recommendations": 3000,
+    "financial_analysis": 3000,
+    "general_knowledge": 800,
+    "financial_general": 800,
     "greeting": 0,
     "goodbye": 0,
     "thanks": 0,
@@ -364,7 +377,8 @@ def _is_truncated_response(answer: str, finish_reason: Optional[str] = None) -> 
 
 
 def _estimate_tokens(text: str) -> int:
-    return max(1, len(text) // 4)
+    """Estimate tokens using tiktoken for accuracy, fallback to character-based."""
+    return count_tokens(text)
 
 
 def _summarize_usage(usage: Any) -> Optional[Dict[str, int]]:
@@ -403,10 +417,51 @@ def _merge_with_overlap_detection(original: str, continuation: str) -> str:
 
 
 def _get_token_limit_for_intent(intent: str, requested_max_tokens: int) -> int:
-    return TOKEN_LIMITS.get(intent, requested_max_tokens)
+    intent_cap = TOKEN_LIMITS.get(intent)
+    if intent_cap is None:
+        return requested_max_tokens
+    return min(intent_cap, requested_max_tokens)
 
 
-def _call_model(model: ModelConfig, system_prompt: str, user_prompt: str, max_tokens: int = 900, timeout: float = 15.0) -> Tuple[str, Optional[str], Optional[Dict[str, int]]]:
+def _call_model(model: ModelConfig, system_prompt: str, user_prompt: str, max_tokens: int = 2000, timeout: float = 15.0, context: str = "", intent: str = "unknown") -> Tuple[str, Optional[str], Optional[Dict[str, int]]]:
+    """Call model with context budget validation and diagnostics."""
+    # Calculate and validate context budget before calling model
+    budget = calculate_budget(
+        model_name=model.name,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        context=context,
+        requested_output_tokens=max_tokens,
+        intent=intent,
+    )
+    
+    # Log diagnostics
+    log_diagnostics(
+        model_name=model.name,
+        budget=budget,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        context=context,
+    )
+    
+    # Validate budget (raises ContextOverflowError if exceeded)
+    validate_budget(budget)
+    
+    # Adjust max_tokens if needed to prevent overflow
+    safe_max_tokens = get_safe_max_tokens(
+        model_name=model.name,
+        estimated_input_tokens=budget.estimated_input_tokens,
+        default_max=max_tokens,
+        intent=intent,
+    )
+    
+    if safe_max_tokens != max_tokens:
+        logger.info(
+            "Adjusted max_tokens from %s to %s to prevent context overflow",
+            max_tokens, safe_max_tokens,
+        )
+        max_tokens = safe_max_tokens
+    
     client = get_openrouter_client()
     response = client.chat.completions.create(
         model=model.name,
@@ -426,10 +481,10 @@ def _call_model(model: ModelConfig, system_prompt: str, user_prompt: str, max_to
     return answer, response.choices[0].finish_reason, _summarize_usage(getattr(response, "usage", None))
 
 
-def _call_model_continuation(model: ModelConfig, system_prompt: str, previous_answer: str, max_tokens: int = 900, timeout: float = 15.0) -> Tuple[str, Optional[str], Optional[Dict[str, int]]]:
+def _call_model_continuation(model: ModelConfig, system_prompt: str, previous_answer: str, max_tokens: int = 2000, timeout: float = 15.0) -> Tuple[str, Optional[str], Optional[Dict[str, int]]]:
     """
     Request a continuation of a previous partial answer.
-    
+
     Uses the assistant's partial answer as conversation history so the model
     continues from where it left off, rather than re-answering the original question.
     """
@@ -439,7 +494,7 @@ def _call_model_continuation(model: ModelConfig, system_prompt: str, previous_an
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "assistant", "content": previous_answer},
-            {"role": "user", "content": "Continue."},
+            {"role": "user", "content": CONTINUATION_USER_MESSAGE},
         ],
         temperature=0.2,
         max_tokens=max_tokens,
@@ -453,22 +508,73 @@ def _call_model_continuation(model: ModelConfig, system_prompt: str, previous_an
     return answer, response.choices[0].finish_reason, _summarize_usage(getattr(response, "usage", None))
 
 
-def _call_model_stream(model: ModelConfig, system_prompt: str, user_prompt: str, max_tokens: int = 900, timeout: float = 12.0, intent: str = "unknown"):
+def _call_model_stream(model: ModelConfig, system_prompt: str, user_prompt: str, max_tokens: int = 2000, timeout: float = 12.0, intent: str = "unknown", context: str = "", previous_answer: Optional[str] = None):
     """
     Stream response from a model with separate connection and read timeouts.
 
     Connection timeout is always 10s (fast TCP/TLS handshake).
     Read timeout varies by intent complexity (see STREAM_READ_TIMEOUTS).
+
+    When previous_answer is set, uses assistant-role history so the model
+    continues naturally instead of reconstructing from an inlined prompt.
     """
+    budget_prompt = user_prompt
+    if previous_answer:
+        budget_prompt = user_prompt + previous_answer + CONTINUATION_USER_MESSAGE
+
+    # Calculate and validate context budget before streaming
+    budget = calculate_budget(
+        model_name=model.name,
+        system_prompt=system_prompt,
+        user_prompt=budget_prompt,
+        context=context,
+        requested_output_tokens=max_tokens,
+        intent=intent,
+    )
+    
+    # Log diagnostics
+    log_diagnostics(
+        model_name=model.name,
+        budget=budget,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        context=context,
+    )
+    
+    # Validate budget (raises ContextOverflowError if exceeded)
+    validate_budget(budget)
+    
+    # Adjust max_tokens if needed to prevent overflow
+    safe_max_tokens = get_safe_max_tokens(
+        model_name=model.name,
+        estimated_input_tokens=budget.estimated_input_tokens,
+        default_max=max_tokens,
+        intent=intent,
+    )
+    
+    if safe_max_tokens != max_tokens:
+        logger.info(
+            "[STREAM] Adjusted max_tokens from %s to %s to prevent context overflow",
+            max_tokens, safe_max_tokens,
+        )
+        max_tokens = safe_max_tokens
+    
     client = get_openrouter_client()
-    stream_timeout = httpx.Timeout(45.0, connect=10.0)
+    stream_timeout = httpx.Timeout(15.0, connect=5.0)
+
+    messages: List[Dict[str, str]] = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+    if previous_answer:
+        messages.extend([
+            {"role": "assistant", "content": previous_answer},
+            {"role": "user", "content": CONTINUATION_USER_MESSAGE},
+        ])
 
     stream = client.chat.completions.create(
         model=model.name,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
+        messages=messages,
         temperature=0.2,
         max_tokens=max_tokens,
         timeout=stream_timeout,
@@ -486,13 +592,19 @@ def _try_model_call(
     max_tokens: int,
     start_time: float,
     pool: str,
+    context: str = "",
+    intent: str = "unknown",
 ) -> Tuple[Optional[str], Optional[Exception], Optional[str], Optional[Dict[str, int]]]:
     latency: float = 0.0
     try:
-        answer, finish_reason, usage = _call_model(model=model, system_prompt=system_prompt, user_prompt=user_prompt, max_tokens=max_tokens)
+        answer, finish_reason, usage = _call_model(model=model, system_prompt=system_prompt, user_prompt=user_prompt, max_tokens=max_tokens, context=context, intent=intent)
         latency = time.perf_counter() - start_time
         _record_success(model.name, latency)
         return answer, None, finish_reason, usage
+    except ContextOverflowError as error:
+        # Re-raise context overflow errors to be handled at higher level
+        latency = time.perf_counter() - start_time
+        return None, error, None, None
     except Exception as error:
         latency = time.perf_counter() - start_time
         _record_failure(model.name, error, pool)
@@ -528,12 +640,17 @@ def _try_model_stream(
     pool: str,
     timeout: float = 12.0,
     intent: str = "unknown",
+    context: str = "",
+    previous_answer: Optional[str] = None,
 ):
     collected: List[str] = []
     stream_error: Optional[Exception] = None
     finish_reason: Optional[str] = None
     usage: Optional[Dict[str, int]] = None
     chunk_count = 0
+    budget_prompt = user_prompt
+    if previous_answer:
+        budget_prompt = user_prompt + previous_answer + CONTINUATION_USER_MESSAGE
     try:
         for chunk in _call_model_stream(
             model=model,
@@ -542,6 +659,8 @@ def _try_model_stream(
             max_tokens=max_tokens,
             timeout=timeout,
             intent=intent,
+            context=context,
+            previous_answer=previous_answer,
         ):
             if not getattr(chunk, "choices", None):
                 continue
@@ -582,23 +701,23 @@ def _try_model_stream(
     latency = time.perf_counter() - start_time
     _record_success(model.name, latency)
     full_response = "".join(collected).strip()
-    prompt_token_estimate = usage["prompt_tokens"] if usage and usage.get("prompt_tokens") else _estimate_tokens(system_prompt + user_prompt)
+    prompt_token_estimate = usage["prompt_tokens"] if usage and usage.get("prompt_tokens") else _estimate_tokens(system_prompt + budget_prompt)
     completion_token_estimate = usage["completion_tokens"] if usage and usage.get("completion_tokens") else _estimate_tokens(full_response)
     total_token_estimate = usage["total_tokens"] if usage and usage.get("total_tokens") else prompt_token_estimate + completion_token_estimate
     logger.info(
         "[STREAM DIAGNOSTIC] Model=%s | intent=%s | finish_reason=%s | chunks=%s | collected_chars=%s | latency=%ss | RESULT=SUCCESS",
         model.name, intent, finish_reason or "stop", chunk_count, len(full_response), round(latency, 3),
     )
-    yield "", {
+    yield {
         "finish_reason": finish_reason or "stop",
         "prompt_token_estimate": prompt_token_estimate,
         "completion_token_estimate": completion_token_estimate,
         "total_token_estimate": total_token_estimate,
         "max_tokens": max_tokens,
-    }
+    }, None
 
 
-def stream_answer(prompt: str, max_tokens: int = 900, intent: str = "unknown", context: str = "", model_override: Optional[str] = None, previous_answer: Optional[str] = None):
+def stream_answer(prompt: str, max_tokens: int = 2000, intent: str = "unknown", context: str = "", model_override: Optional[str] = None, previous_answer: Optional[str] = None):
     """
     Stream an answer from the configured LLM models with strict lifecycle enforcement.
 
@@ -624,10 +743,11 @@ def stream_answer(prompt: str, max_tokens: int = 900, intent: str = "unknown", c
     fallback_used = False
     max_tokens = _get_token_limit_for_intent(intent, max_tokens)
 
-    # For continuation requests, modify the prompt to include the previous answer
     if previous_answer:
-        prompt = f"Previous response:\n{previous_answer}\n\nContinue the response from where it stopped. Do not repeat the previous content. Continue directly from the last sentence.\n\nOriginal question: {prompt}"
-        logger.info("[Continuation] Modified prompt for continuation (previous_answer_length=%s)", len(previous_answer))
+        logger.info(
+            "[Continuation] Using assistant-role history (previous_answer_length=%s)",
+            len(previous_answer),
+        )
 
     system_prompt = build_system_prompt(context, intent=intent)
 
@@ -678,19 +798,27 @@ def stream_answer(prompt: str, max_tokens: int = 900, intent: str = "unknown", c
             total_attempts += 1
 
             pool = _get_pool_for_intent(intent)
-            logger.info("Trying model %s (tier %s/%s, timeout=%ss)", model.name, tier_index + 1, len(tiers), tier_timeout)
+            elapsed_so_far = round(time.perf_counter() - start_time, 1)
+            logger.info(
+                "[MODEL ATTEMPT] model=%s | tier=%s/%s | timeout=%ss | elapsed=%ss",
+                model.name, tier_index + 1, len(tiers), tier_timeout, elapsed_so_far,
+            )
             last_error: Optional[Exception] = None
             collected: List[str] = []
             first_token_recorded: bool = False
             finish_reason: Optional[str] = None
-            prompt_token_estimate: int = _estimate_tokens(system_prompt + prompt)
+            budget_prompt = prompt
+            if previous_answer:
+                budget_prompt = prompt + previous_answer + CONTINUATION_USER_MESSAGE
+            prompt_token_estimate: int = _estimate_tokens(system_prompt + budget_prompt)
             completion_token_estimate: int = 0
             total_token_estimate: int = 0
 
             try:
                 for chunk, err in _try_model_stream(
                     model=model, system_prompt=system_prompt, user_prompt=prompt, max_tokens=max_tokens,
-                    start_time=start_time, pool=pool, timeout=tier_timeout, intent=intent,
+                    start_time=start_time, pool=pool, timeout=tier_timeout, intent=intent, context=context,
+                    previous_answer=previous_answer,
                 ):
                     if err is not None:
                         last_error = err
@@ -836,7 +964,7 @@ def stream_answer(prompt: str, max_tokens: int = 900, intent: str = "unknown", c
     yield ("", {"error": True, "message": "AI service temporarily unavailable. All models failed."})
 
 
-def generate_answer(prompt: str, max_tokens: int = 900, intent: str = "unknown", context: str = "") -> GenerateAnswerResult:
+def generate_answer(prompt: str, max_tokens: int = 2000, intent: str = "unknown", context: str = "") -> GenerateAnswerResult:
     start_time = time.perf_counter()
     total_attempts = 0
     model_errors: List[str] = []
@@ -898,7 +1026,7 @@ def generate_answer(prompt: str, max_tokens: int = 900, intent: str = "unknown",
                 total_attempts += 1
                 answer, error, finish_reason, usage = _try_model_call(
                     model=model, system_prompt=system_prompt, user_prompt=prompt, max_tokens=max_tokens,
-                    start_time=start_time, pool=pool,
+                    start_time=start_time, pool=pool, context=context, intent=intent,
                 )
                 if answer is not None:
                     # Check for truncated responses (too short to be meaningful)

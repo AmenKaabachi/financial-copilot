@@ -390,36 +390,36 @@ class IntentClassifier:
             return IntentRoute(IntentType.ASSISTANT_CAPABILITIES, False, False, 0, ASSISTANT_CAPABILITIES_RESPONSE, entities)
 
         if scores[IntentType.DATASET_REVIEW] >= 5:
-            return IntentRoute(IntentType.DATASET_REVIEW, True, True, 3000, retrieved_entities=entities)
+            return IntentRoute(IntentType.DATASET_REVIEW, True, True, 4000, retrieved_entities=entities)
         if scores[IntentType.INVOICE_LOOKUP] >= 2:
-            return IntentRoute(IntentType.INVOICE_LOOKUP, True, True, 800, retrieved_entities=entities)
+            return IntentRoute(IntentType.INVOICE_LOOKUP, True, True, 2000, retrieved_entities=entities)
         if scores[IntentType.ANOMALY_LOOKUP] >= 2:
-            return IntentRoute(IntentType.ANOMALY_LOOKUP, True, True, 800, retrieved_entities=entities)
+            return IntentRoute(IntentType.ANOMALY_LOOKUP, True, True, 2000, retrieved_entities=entities)
         if scores[IntentType.RECONCILIATION_ANALYSIS] >= 2:
-            return IntentRoute(IntentType.RECONCILIATION_ANALYSIS, True, True, 800, retrieved_entities=entities)
+            return IntentRoute(IntentType.RECONCILIATION_ANALYSIS, True, True, 3000, retrieved_entities=entities)
         if scores[IntentType.REPORT_SUMMARY] >= 3:
-            return IntentRoute(IntentType.REPORT_SUMMARY, True, True, 900, retrieved_entities=entities)
+            return IntentRoute(IntentType.REPORT_SUMMARY, True, True, 2500, retrieved_entities=entities)
         if scores[IntentType.TREND_ANALYSIS] >= 2:
-            return IntentRoute(IntentType.TREND_ANALYSIS, True, True, 800, retrieved_entities=entities)
+            return IntentRoute(IntentType.TREND_ANALYSIS, True, True, 2000, retrieved_entities=entities)
         if scores[IntentType.COMPARISON] >= 2:
-            return IntentRoute(IntentType.COMPARISON, True, True, 800, retrieved_entities=entities)
+            return IntentRoute(IntentType.COMPARISON, True, True, 2000, retrieved_entities=entities)
         if scores[IntentType.RECOMMENDATIONS] >= 2:
-            return IntentRoute(IntentType.RECOMMENDATIONS, True, True, 800, retrieved_entities=entities)
+            return IntentRoute(IntentType.RECOMMENDATIONS, True, True, 3000, retrieved_entities=entities)
         if scores[IntentType.FINANCIAL_GENERAL] >= 2:
-            return IntentRoute(IntentType.FINANCIAL_GENERAL, True, False, 700, retrieved_entities=entities)
+            return IntentRoute(IntentType.FINANCIAL_GENERAL, True, False, 1200, retrieved_entities=entities)
         if scores[IntentType.GENERAL_KNOWLEDGE] >= 2:
-            return IntentRoute(IntentType.GENERAL_KNOWLEDGE, True, False, 384, retrieved_entities=entities)
+            return IntentRoute(IntentType.GENERAL_KNOWLEDGE, True, False, 1000, retrieved_entities=entities)
 
         if entities.get("invoice_id"):
-            return IntentRoute(IntentType.INVOICE_LOOKUP, True, True, 800, retrieved_entities=entities)
+            return IntentRoute(IntentType.INVOICE_LOOKUP, True, True, 2000, retrieved_entities=entities)
         if entities.get("transaction_id"):
-            return IntentRoute(IntentType.INVOICE_LOOKUP, True, True, 800, retrieved_entities=entities)
+            return IntentRoute(IntentType.INVOICE_LOOKUP, True, True, 2000, retrieved_entities=entities)
         if entities.get("anomaly_id"):
-            return IntentRoute(IntentType.ANOMALY_LOOKUP, True, True, 800, retrieved_entities=entities)
+            return IntentRoute(IntentType.ANOMALY_LOOKUP, True, True, 2000, retrieved_entities=entities)
         if entities.get("report_id"):
-            return IntentRoute(IntentType.REPORT_SUMMARY, True, True, 900, retrieved_entities=entities)
+            return IntentRoute(IntentType.REPORT_SUMMARY, True, True, 2500, retrieved_entities=entities)
 
-        return IntentRoute(IntentType.FINANCIAL_ANALYSIS, True, True, 900, retrieved_entities=entities)
+        return IntentRoute(IntentType.FINANCIAL_ANALYSIS, True, True, 4000, retrieved_entities=entities)
 
 
 def _regex_score(message: str, patterns: tuple[str, ...]) -> int:

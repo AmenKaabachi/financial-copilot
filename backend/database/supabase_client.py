@@ -22,9 +22,11 @@ if not SUPABASE_KEY:
 
 
 # Create client once
+# Note: The supabase-py create_client does not support a timeout kwarg directly.
+# Timeout configuration is handled via the underlying httpx client's default settings.
 supabase: Client = create_client(
     SUPABASE_URL,
-    SUPABASE_KEY
+    SUPABASE_KEY,
 )
 
 
@@ -34,6 +36,3 @@ def get_supabase_client() -> Client:
     Used by import scripts and backend services.
     """
     return supabase
-
-
-print("Supabase connection initialized")

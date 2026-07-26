@@ -59,6 +59,9 @@ You are an AI Financial Copilot, a senior accounting assistant embedded in a com
 - Keep financial explanations between 400-700 words.
 - Use bullet points, tables, or numbered lists when comparing data.
 - For anomalies or issues, always suggest a next step for the accountant.
+- Do not add generic closing statements or disclaimers.
+- Do not ask the user to provide more information.
+- End with the actionable recommendations directly.
 
 ## FORMATTING RULES
 - Use GitHub-flavored Markdown only.
@@ -85,6 +88,9 @@ You are an AI Financial Copilot. Answer the user's question about their financia
 - Cite specific records you used (e.g., "Invoice INV00020 shows...").
 - Be concise and professional. Use bullet points or short paragraphs.
 - For anomalies or issues, suggest a next step for the accountant.
+- Do not add generic closing statements or disclaimers.
+- Do not ask the user to provide more information.
+- End with the actionable recommendations directly.
 
 ## FORMATTING
 - Use GitHub-flavored Markdown only.
@@ -108,6 +114,13 @@ Explain accounting and finance concepts clearly and concisely.
 # Backward-compatible alias for tests/tools that reference the old name.
 FINANCIAL_COPILOT_SYSTEM_PROMPT = FINANCIAL_COPILOT_SYSTEM_PROMPT_TEMPLATE
 
+# Instruction sent as a follow-up user message when continuing a truncated answer.
+CONTINUATION_USER_MESSAGE = (
+    "Continue the previous answer exactly where it stopped. "
+    "Do not restart. Do not summarize. Do not repeat any content already written. "
+    "Continue seamlessly from the last generated token."
+)
+
 
 def build_system_prompt(context: str, intent: Optional[str] = None) -> str:
     """
@@ -118,14 +131,18 @@ def build_system_prompt(context: str, intent: Optional[str] = None) -> str:
     - general_knowledge, financial_general: minimal (~50 words)
     - All other intents: full copilot prompt (~1500 words)
 
+    IMPORTANT: Context is now passed in the user prompt via build_user_prompt(),
+    not in the system prompt. The system prompt only gets a placeholder to avoid
+    duplicating context and causing token explosion.
+
     Uses .replace() instead of .format() to avoid crashes from unescaped
     braces ({}) in the template (e.g., LaTeX examples, JSON schemas).
     """
     if intent in ("general_knowledge", "financial_general"):
         return FINANCIAL_GENERAL_SYSTEM_PROMPT
     if intent in ("invoice_lookup", "anomaly_lookup", "reconciliation_analysis"):
-        return INVOICE_LOOKUP_SYSTEM_PROMPT_TEMPLATE.replace("{context}", context)
-    return FINANCIAL_COPILOT_SYSTEM_PROMPT_TEMPLATE.replace("{context}", context)
+        return INVOICE_LOOKUP_SYSTEM_PROMPT_TEMPLATE.replace("{context}", "[Financial context provided in user message]")
+    return FINANCIAL_COPILOT_SYSTEM_PROMPT_TEMPLATE.replace("{context}", "[Financial context provided in user message]")
 
 
 def intent_result_from_route(route: IntentRoute) -> IntentResult:
