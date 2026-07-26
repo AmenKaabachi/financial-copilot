@@ -10,8 +10,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-from app.services.conversation import ConversationService
-from app.services.database import (
+from app.modules.copilot.services.conversation import ConversationService
+from app.shared.database.retrieval import (
     get_anomaly,
     get_dataset_summary,
     get_duplicate_payments,
@@ -22,31 +22,31 @@ from app.services.database import (
     get_missing_payments,
     get_recent_reconciliation,
     get_recommendation_context,
-    get_supabase_client,
     retrieve_context,
 )
-from app.services.financial_rules import build_financial_context
-from app.services.context_formatter import format_financial_context, estimate_context_tokens
-from app.services.llm import AIServiceUnavailableError, build_user_prompt, generate_answer, stream_answer, IntentClassifier
-from app.services.llm.prompts import intent_result_from_route
-from app.services.llm.routing import IntentType, conversation_memory
-from app.services.conversation_state import conversation_state_manager, get_conversation_state
-from app.services.continuation_state import (
+from app.shared.database.supabase_client import get_supabase_client
+from app.shared.financial_rules import build_financial_context
+from app.modules.copilot.services.context_formatter import format_financial_context, estimate_context_tokens
+from app.shared.llm import AIServiceUnavailableError, generate_answer, stream_answer
+from app.shared.llm.manager import get_all_health, MODEL_POOL_LABELS
+from app.shared.llm.prompts import build_system_prompt
+from app.modules.copilot.prompts.copilot_prompts import intent_result_from_route, build_user_prompt
+from app.modules.copilot.services.routing import IntentType, conversation_memory, IntentClassifier
+from app.modules.copilot.services.conversation_state import conversation_state_manager, get_conversation_state
+from app.modules.copilot.services.continuation_state import (
     continuation_state_manager,
     get_continuation_state,
     is_continue_request,
     FinishReason,
 )
-from app.services.analytics import (
+from app.shared.analytics import (
     calculate_reconciliation_metrics,
     calculate_anomaly_statistics,
     calculate_payment_statistics,
 )
-from app.services.llm.manager import get_all_health, MODEL_POOL_LABELS
-from app.services.timing import RequestMetrics
-from app.services.benchmark.benchmark_models import BenchmarkRequest, BenchmarkResponse
-from app.services.benchmark.benchmark_service import run_model_test, compare_results
-from app.services.llm.prompts import build_system_prompt
+from app.shared.timing import RequestMetrics
+from app.shared.benchmark.benchmark_models import BenchmarkRequest, BenchmarkResponse
+from app.shared.benchmark.benchmark_service import run_model_test, compare_results
 
 router = APIRouter()
 
@@ -863,7 +863,7 @@ def chat_stream(request: QuestionRequest):
                 else:
                     # For continuation, detect and remove duplicate text from the new chunk
                     if is_continuation and continuation_state and continuation_state.can_continue() and chunk:
-                        from app.services.llm.manager import _merge_with_overlap_detection
+                        from app.shared.llm.manager import _merge_with_overlap_detection
                         # The chunk might repeat the end of the previous answer
                         merged = _merge_with_overlap_detection(full_answer, chunk)
                         if merged != full_answer + chunk:

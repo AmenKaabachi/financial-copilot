@@ -9,8 +9,8 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from database.supabase_client import get_supabase_client
-from app.services.conversation import generate_conversation_title
+from app.shared.database.supabase_client import get_supabase_client
+from app.modules.copilot.services.conversation import generate_conversation_title
 
 logger = logging.getLogger(__name__)
 

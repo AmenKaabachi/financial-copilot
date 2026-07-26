@@ -1,5 +1,3 @@
-# Re-export from shared location for backward compatibility
-# This file will be removed after all imports are updated
 from app.shared.llm.manager import (
     AIServiceUnavailableError,
     generate_answer,
@@ -11,17 +9,12 @@ from app.shared.llm.manager import (
     MODEL_POOL_LABELS,
 )
 from app.shared.llm.prompts import build_system_prompt
-from app.modules.copilot.services.routing import IntentClassifier, IntentType
 
 __all__ = [
     "generate_answer",
     "stream_answer",
     "AIServiceUnavailableError",
-    "build_user_prompt",
-    "IntentClassifier",
-    "IntentResult",
-    "IntentType",
-    "intent_result_from_route",
+    "build_system_prompt",
     "disable_model_config",
     "enable_model_config",
     "get_model_health",

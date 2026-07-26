@@ -1,7 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
 from app.routes import copilot
 from app.routes import conversations
+from app.modules.reporting.routes import reports as reporting_reports
 
 app = FastAPI(
     title="AI Financial Copilot API",
@@ -33,6 +35,12 @@ app.include_router(
     conversations.router,
     prefix="/copilot",
     tags=["Conversation History"]
+)
+
+app.include_router(
+    reporting_reports.router,
+    prefix="/reports",
+    tags=["Financial Reporting"]
 )
 
 @app.get("/")
