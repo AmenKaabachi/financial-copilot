@@ -14,38 +14,65 @@ financial-copilot/
     app/
       main.py                  # FastAPI app, CORS for Angular, router registration
       routes/
-        copilot.py             # /copilot/chat, /copilot/chat/stream, /copilot/health/models
+        __init__.py
+        conversations.py       # Conversation history CRUD endpoints
+        copilot.py             # /copilot/chat, /copilot/chat/stream, /copilot/health/models,
+                               # /copilot/benchmark, /copilot/continuation/clear
       services/
+        __init__.py
         timing.py              # RequestMetrics: structured latency tracking and request IDs
         database.py            # Supabase query helpers with entity-level caching
         financial_rules.py     # invoice vs. payment reconciliation rule engine
         conversation.py        # chat history persistence
         conversation_state.py  # per-session conversation state management
+        continuation_state.py  # interrupted generation tracking for "continue" requests
+        context_budget.py      # token budget calculation, validation, overflow prevention
+        context_formatter.py   # record trimming to essential fields before prompt construction
+        token_counter.py       # tiktoken-based accurate token estimation + model context limits
         analytics.py           # statistics calculators for reconciliation, anomalies, payments
+        benchmark/
+          __init__.py
+          benchmark_models.py  # Pydantic models for benchmark requests/responses/rankings
+          benchmark_service.py # model test runner, TTFT measurement, ranking calculation
         llm/
+          __init__.py
           client.py            # OpenAI-compatible client wrapper
-          manager.py           # model pool, fallback, health, generate/stream
-          models.py            # model config, pools, per-intent model routing
+          manager.py           # model pool, 3-tier fallback, health, generate/stream, response cache
+          models.py            # model config, 3-tier pools, per-intent model routing
           prompts.py           # intent-specific prompt builders (full, lightweight, minimal)
           routing.py           # IntentClassifier + IntentType definitions + direct-answer patterns
     database/
+      __init__.py
       supabase_client.py       # Supabase client initialization
     scripts/
       import_data.py           # CSV -> Supabase importer
+    check_syntax.py            # Python syntax checker
     requirements.txt
   frontend/                    # Angular 18 standalone-components app
     src/
       app/
         app.config.ts          # providers (router, http, markdown)
-        app.routes.ts          # routes (layout + copilot)
+        app.routes.ts          # routes (layout + copilot + benchmark)
         core/
           layout/              # sidebar/header shell layout component
           models/
-            copilot.models.ts  # request/response interfaces
+            conversation.models.ts  # conversation request/response interfaces
+            copilot.models.ts       # copilot request/response interfaces
           services/
-            copilot.service.ts # HTTP + SSE streaming client
+            benchmark-state.service.ts  # benchmark state management
+            conversation.service.ts     # conversation history service
+            copilot.service.ts          # HTTP + SSE streaming client
         features/
+          benchmark/           # LLM model benchmark comparison UI
+            benchmark.component.ts/html/css
+            benchmark.models.ts
+            benchmark.service.ts
+            benchmark-charts/  # Chart.js visualization components
           copilot/             # chat UI (messages, streaming, edit/regenerate)
+            copilot.component.ts/html/css
+            conversation-history.component.ts/html/css
+            conversation-item.component.ts/css
+            new-conversation-button.component.ts/css
       environments/
         environment.ts         # apiUrl -> http://127.0.0.1:8000
     package.json
@@ -58,6 +85,15 @@ financial-copilot/
   docs/                        # currently empty
   scripts/
     generate_data.py           # synthetic dataset generator
+    migrate_chat_history.sql   # Supabase migration for chat history
+  tests/
+    copilot_cases.json         # Test cases for copilot evaluation
+    copilot_context_regression.py  # Context regression tests
+    run_evaluation.py          # Evaluation runner
+  _patch_conv.py               # Migration patches
+  _patch_copilot.py
+  _patch_copilot2.py
+  _patch_copilot3.py
 ```
 
 ## Current State
@@ -213,13 +249,13 @@ Three system prompt templates selected by intent:
 
 #### 6. Model Routing by Intent & Complexity (`services/llm/models.py`)
 
-Three model pools, selected per intent:
+Three model pools with 9 models across 3 tiers, selected per intent:
 
-| Pool                   | Models           | Timeout          | Used For                                 |
-| ---------------------- | ---------------- | ---------------- | ---------------------------------------- |
-| **Fast** (tier 1)      | 3 fastest models | 8s               | Simple lookups, definitions              |
-| **Medium** (tiers 1-2) | 5 models         | 8s               | Reconciliation, comparisons, trends      |
-| **Full** (tiers 1-3)   | 9 models         | 8s/15s/25s tiers | Dataset review, reports, recommendations |
+| Pool                   | Models                                                                                                                                                              | Timeout          | Used For                                 |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- | ---------------------------------------- |
+| **Fast** (tier 1)      | `openai/gpt-oss-20b:free`, `google/gemma-4-26b-a4b-it:free`, `poolside/laguna-xs-2.1:free`                                                                          | 8s               | Simple lookups, definitions              |
+| **Medium** (tiers 1-2) | Fast models + `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free`, `nvidia/nemotron-3-nano-30b-a3b:free`                                                           | 8s               | Reconciliation, comparisons, trends      |
+| **Full** (tiers 1-3)   | Medium models + `nvidia/nemotron-nano-9b-v2:free`, `google/gemma-4-31b-it:free`, `nvidia/nemotron-3-ultra-550b-a55b:free`, `nvidia/nemotron-3-super-120b-a12b:free` | 8s/15s/25s tiers | Dataset review, reports, recommendations |
 
 Intent-to-pool mapping:
 
@@ -253,14 +289,101 @@ The LLM manager (`manager.py`) supports:
 
 LLM responses are cached by prompt hash + intent + max_tokens with a 5-minute TTL. Cache hits skip both database queries and LLM calls.
 
+#### 10. Context Budget Management (`services/context_budget.py`)
+
+Prevents context overflow by calculating token budgets before every LLM call:
+
+- **Model-aware**: Uses per-model context limits (e.g., 8K for Gemma, 32K for Nemotron, 128K for GPT-4o)
+- **Intent-aware minimum output**: Ensures enough room for complete responses:
+
+| Intent(s)                        | Min Output Tokens |
+| -------------------------------- | ----------------- |
+| invoice_lookup, anomaly_lookup   | 300               |
+| reconciliation_analysis          | 500               |
+| report_summary                   | 600               |
+| dataset_review                   | 800               |
+| financial_analysis               | 600               |
+| general_knowledge, financial_gen | 400               |
+
+- **Safety margin**: Uses 80% of model context limit by default
+- **Output reservation**: Reserves 25% of context for model output
+- **Validation**: Raises `ContextOverflowError` if estimated input tokens exceed budget
+- **Diagnostics**: Logs detailed prompt breakdown (system tokens, context tokens, user tokens, utilization %)
+
+#### 11. Context Formatting & Token Optimization (`services/context_formatter.py`)
+
+Sits between database retrieval and prompt construction to trim verbose records:
+
+- **Key-field extraction**: Only essential fields are retained per record type:
+
+| Record Type    | Retained Fields                                                                            |
+| -------------- | ------------------------------------------------------------------------------------------ |
+| Invoice        | invoice_id, amount, due_date, payment_status, vendor_name, description, issue, severity    |
+| Transaction    | transaction_id, amount, transaction_date, type, status, description                        |
+| Anomaly        | anomaly_id, invoice_id, anomaly_type, severity, status, amount, description, detected_date |
+| Reconciliation | reconciliation_id, invoice_id, erp_amount, bank_amount, difference, status, match_status   |
+
+- **Query-type budgets**: Broad/general questions get ~1500 tokens, specific investigations get ~3000 tokens, dataset reviews get ~4000 tokens
+- **Token estimation**: Uses `estimate_context_tokens()` for rough character-to-token ratio
+
+#### 12. Token Counter (`services/token_counter.py`)
+
+Accurate token estimation using tiktoken with fallback:
+
+- **Primary**: Uses `tiktoken` with `cl100k_base` encoding for accurate counts
+- **Fallback**: Character-based estimation (`len(text) // 4`) when tiktoken is unavailable
+- **Model context limits**: Built-in database of context limits for 20+ models (Gemma, Nemotron, GPT, Claude, Qwen, Mistral, etc.)
+- **Functions**: `count_tokens()`, `count_messages_tokens()`, `estimate_prompt_tokens()`, `get_model_context_limit()`
+
+#### 13. Continuation & Interruption Handling (`services/continuation_state.py`)
+
+Tracks interrupted generations and supports "continue" requests:
+
+- **Interruption detection**: When `finish_reason == "length"`, the generation state is preserved
+- **Continue flow**: User says "continue" → system restores original context + accumulated text → model continues from where it left off
+- **Overlap detection**: `_merge_with_overlap_detection()` prevents duplicate text when merging continuation chunks
+- **State lifecycle**: `start_generation()` → `update_accumulated_text()` → `mark_completed()` / `mark_interrupted()` → `clear_state()`
+- **API endpoints**: `POST /copilot/continuation/clear` and `POST /copilot/chat/continuation/clear` to reset state
+- **Finish reasons**: COMPLETED, MAX_TOKENS, MODEL_TIMEOUT, PROVIDER_ERROR, RATE_LIMIT, NETWORK_ERROR, STOPPED_BY_USER
+
+#### 14. Conversation State Management (`services/conversation_state.py`)
+
+Per-session state tracking for pronoun resolution and follow-up context:
+
+- **Tracked fields**: active_intent, active_entity (type + id), last_analysis_type, last_tool_used, last_response_status, previous_intent
+- **Thread-safe**: Uses `RLock` for concurrent access
+- **Usage**: When user asks "tell me more about it", the system resolves "it" to the last active entity
+
+#### 15. Benchmark System (`services/benchmark/`)
+
+A dedicated model benchmarking subsystem for comparing LLM performance:
+
+- **Isolation**: Tests each model individually without fallback logic
+- **Metrics measured**: Response time (ms), Time to First Token (TTFT), prompt/completion/total tokens, tokens/second
+- **Automated rankings**:
+
+| Ranking                | Description                                                                       |
+| ---------------------- | --------------------------------------------------------------------------------- |
+| Fastest Model          | Lowest total response time                                                        |
+| Best Latency Model     | Lowest Time to First Token (TTFT)                                                 |
+| Most Efficient Model   | Lowest total token usage among successful responses                               |
+| Most Reliable Model    | Highest success rate (all attempts successful)                                    |
+| Recommended Production | Weighted score: 25% latency + 15% tokens + 10% speed + 20% TTFT + 30% reliability |
+
+- **API endpoint**: `POST /copilot/benchmark` accepts question + model list + optional intent override
+- **Frontend UI**: Angular benchmark component with model selection, sortable results table, Chart.js visualizations, CSV/JSON export, and plain-text report generation
+
 ### API Endpoints
 
-| Method | Path                     | Description                        |
-| ------ | ------------------------ | ---------------------------------- |
-| POST   | `/copilot/chat`          | Non-streaming answer with metadata |
-| POST   | `/copilot/chat/stream`   | Server-Sent Events stream          |
-| GET    | `/copilot/health/models` | Model pool health and labels       |
-| GET    | `/copilot/models/health` | Per-model health summary           |
+| Method | Path                               | Description                                 |
+| ------ | ---------------------------------- | ------------------------------------------- |
+| POST   | `/copilot/chat`                    | Non-streaming answer with metadata          |
+| POST   | `/copilot/chat/stream`             | Server-Sent Events stream                   |
+| POST   | `/copilot/benchmark`               | Multi-model benchmark comparison            |
+| POST   | `/copilot/continuation/clear`      | Clear continuation state for a session      |
+| POST   | `/copilot/chat/continuation/clear` | Clear continuation state (alternative path) |
+| GET    | `/copilot/health/models`           | Model pool health and labels                |
+| GET    | `/copilot/models/health`           | Per-model health summary                    |
 
 ### API Examples
 
@@ -484,15 +607,20 @@ Optional tuning:
 
 ## Recent Performance Optimizations
 
-| Optimization                   | Impact            | Details                                      |
-| ------------------------------ | ----------------- | -------------------------------------------- |
-| Structured latency logging     | Debugging         | Per-stage timing with request IDs            |
-| Immediate SSE status events    | Perceived latency | Users see progress before LLM starts         |
-| Intent-specific system prompts | TTFT reduction    | ~400 words for lookups vs ~1500 for full     |
-| Model routing by intent        | Latency + cost    | Simple lookups use fast models only          |
-| Entity-level caching           | DB latency        | 30s TTL eliminates repeated DB hits          |
-| Direct SQL responses           | Latency           | Simple count queries skip LLM entirely       |
-| Per-intent token limits        | Token efficiency  | 384 tokens for definitions, 3000 for reviews |
+| Optimization                     | Impact            | Details                                                           |
+| -------------------------------- | ----------------- | ----------------------------------------------------------------- |
+| Structured latency logging       | Debugging         | Per-stage timing with request IDs                                 |
+| Context budget management        | Reliability       | Prevents context overflow with model-aware token budgets          |
+| Context formatting & trimming    | Token efficiency  | Key-field extraction reduces context size by 40-60%               |
+| Intent-aware SSE status events   | Perceived latency | Users see progress before LLM starts                              |
+| Intent-specific system prompts   | TTFT reduction    | ~400 words for lookups vs ~1500 for full                          |
+| Model routing by intent          | Latency + cost    | Simple lookups use fast models only; 3-tier fallback              |
+| Entity-level caching             | DB latency        | 30s TTL eliminates repeated DB hits                               |
+| Direct SQL responses             | Latency           | Simple count queries skip LLM entirely (<15ms)                    |
+| Per-intent token limits          | Token efficiency  | 384 tokens for definitions, 3000 for reviews                      |
+| Continuation & overlap detection | Response quality  | "Continue" requests resume from interruptions without duplication |
+| tiktoken-based token estimation  | Accuracy          | Precise token counting vs character-based fallback (~4x better)   |
+| Response caching (5-min TTL)     | Latency           | Identical queries skip both DB and LLM calls                      |
 
 ## Not Yet Implemented
 
@@ -500,8 +628,10 @@ Optional tuning:
 - Production-grade semantic retrieval (embeddings/search/ranking) — current retrieval is rule + intent based.
 - Async database client (current Supabase client is synchronous).
 - Project documentation in `docs/` (folder exists but empty).
-- Tests and CI workflow.
+- Full CI/CD pipeline with automated tests.
 - A committed `.env.example` template (backend `.env` exists locally for secrets).
+- Model quality scoring tied to benchmark evaluations (quality scores are user-rated, not automated).
+- Documentation for the Supabase schema and migration workflow.
 
 ## Suggested Next Milestones
 
