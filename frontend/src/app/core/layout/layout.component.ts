@@ -19,7 +19,7 @@ export class LayoutComponent {
     { icon: 'compare',   label: 'Reconciliation',  route: '/reconciliation',  active: false },
     { icon: 'smart_toy', label: 'AI Assistant',     route: '/copilot',         active: false },
     { icon: 'science',   label: 'Benchmark Lab',    route: '/benchmark',       active: false },
-    { icon: 'bar_chart', label: 'Reports',          route: '/reports',         active: false },
+    { icon: 'bar_chart', label: 'Reports',          route: '/reporting',         active: false },
     { icon: 'settings',  label: 'Settings',         route: '/settings',        active: false },
   ];
 

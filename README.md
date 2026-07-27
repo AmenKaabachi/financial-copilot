@@ -4,7 +4,7 @@ AI Financial Copilot is a full-stack financial intelligence assistant that helps
 
 - a **FastAPI backend** with intent-aware retrieval, a multi-model LLM pool (OpenRouter-compatible), and a streaming chat API
 - a **Supabase**-backed data layer storing synthetic ERP, bank, reconciliation, and anomaly datasets
-- an **Angular** frontend chat assistant that streams responses and supports editing/regenerating messages
+- an **Angular 18** frontend with a streaming chat assistant, benchmark lab, and a complete **Financial Reporting** module
 
 ## Project Structure
 
@@ -41,6 +41,33 @@ financial-copilot/
           models.py            # model config, 3-tier pools, per-intent model routing
           prompts.py           # intent-specific prompt builders (full, lightweight, minimal)
           routing.py           # IntentClassifier + IntentType definitions + direct-answer patterns
+      modules/
+        reporting/             # Financial Reporting Module (routes + services + analytics)
+          routes/
+            reports.py         # /reporting/health
+            dashboard.py       # GET /reporting/dashboard
+            analytics.py       # KPIs, trends, heatmap, pivot, forecast endpoints
+            builder.py         # Report CRUD, versioning, favorite toggle
+          services/
+            report_service.py      # Report CRUD + version management
+            dashboard_service.py   # Dashboard summary aggregation
+            analytics_service.py   # Analytics data aggregation
+          analytics/
+            kpi_calculators.py     # Revenue, expense, profit, cash flow KPIs
+            trend_engine.py        # Time-bucketed trend series
+            pivot_engine.py        # Pivot table aggregation
+            heatmap_engine.py      # Payment delay heatmap data
+            forecast_placeholder.py
+          schemas/
+            dashboard_schemas.py   # Pydantic models for dashboard responses
+          models/
+            report_definition.py   # Report definition model
+          exporters/               # Export module (extensible)
+          generators/              # AI report generator module (extensible)
+          charts/                  # Chart configuration module
+          templates/               # Report template module
+          assets/                  # Reporting assets
+          prompts/                 # Reporting-specific prompts
     database/
       __init__.py
       supabase_client.py       # Supabase client initialization
@@ -52,7 +79,7 @@ financial-copilot/
     src/
       app/
         app.config.ts          # providers (router, http, markdown)
-        app.routes.ts          # routes (layout + copilot + benchmark)
+        app.routes.ts          # routes (layout + copilot + benchmark + reporting)
         core/
           layout/              # sidebar/header shell layout component
           models/
@@ -62,6 +89,30 @@ financial-copilot/
             benchmark-state.service.ts  # benchmark state management
             conversation.service.ts     # conversation history service
             copilot.service.ts          # HTTP + SSE streaming client
+        modules/
+          reporting/           # Reporting module (pages + components + services)
+            pages/
+              reporting-dashboard/   # Dashboard home with stat cards & widget grid
+              report-builder/        # Report builder with sections/filters/charts
+              analytics/             # Analytics workspace with KPIs, trends, heatmap, pivot
+            components/
+              ai-report-generator/   # AI-powered report generation
+              chart-preview/         # Chart visualization preview
+              report-builder/        # Reusable builder components
+              report-export-panel/   # Export to PDF/Excel/CSV panel
+              report-filter-panel/   # Filter configuration panel
+              report-history/        # Report version history
+              report-preview/        # Report preview rendering
+              report-progress/       # Save/version progress indicator
+              report-template-selector/  # Template selection UI
+            services/
+              reporting.service.ts   # Dashboard, KPI, trend, heatmap, pivot APIs
+              export.service.ts      # Report export API
+              template.service.ts    # Report template API
+            models/
+              reporting.models.ts    # ReportDefinition, ReportVersion, etc.
+            utils/
+              reporting.utils.ts     # Utility functions (TODO)
         features/
           benchmark/           # LLM model benchmark comparison UI
             benchmark.component.ts/html/css
@@ -82,6 +133,8 @@ financial-copilot/
     erp/erp_transactions.csv
     reconciliations/anomalies.csv
     reconciliations/reconciliation_results.csv
+  migrations/
+    001_reporting_tables.sql   # Supabase migration for reporting tables
   docs/                        # currently empty
   scripts/
     generate_data.py           # synthetic dataset generator
@@ -90,10 +143,6 @@ financial-copilot/
     copilot_cases.json         # Test cases for copilot evaluation
     copilot_context_regression.py  # Context regression tests
     run_evaluation.py          # Evaluation runner
-  _patch_conv.py               # Migration patches
-  _patch_copilot.py
-  _patch_copilot2.py
-  _patch_copilot3.py
 ```
 
 ## Current State
@@ -373,17 +422,78 @@ A dedicated model benchmarking subsystem for comparing LLM performance:
 - **API endpoint**: `POST /copilot/benchmark` accepts question + model list + optional intent override
 - **Frontend UI**: Angular benchmark component with model selection, sortable results table, Chart.js visualizations, CSV/JSON export, and plain-text report generation
 
+#### 16. Financial Reporting Module
+
+A complete reporting subsystem with the following features:
+
+**Backend Routes:**
+
+| Method | Path                                       | Description                         |
+| ------ | ------------------------------------------ | ----------------------------------- |
+| GET    | `/reporting/dashboard`                     | Dashboard summary (stats + widgets) |
+| GET    | `/reporting/analytics/kpis`                | Revenue, expenses, profit KPIs      |
+| GET    | `/reporting/analytics/trends`              | Time-bucketed trend series          |
+| GET    | `/reporting/analytics/heatmap`             | Payment delay heatmap data          |
+| GET    | `/reporting/analytics/pivot`               | Pivot table aggregation             |
+| GET    | `/reporting/analytics/forecast`            | Forecast stub                       |
+| POST   | `/reporting/builder/reports`               | Create a new report                 |
+| GET    | `/reporting/builder/reports`               | List reports (paginated)            |
+| GET    | `/reporting/builder/reports/{id}`          | Get single report                   |
+| PUT    | `/reporting/builder/reports/{id}`          | Update report definition            |
+| DELETE | `/reporting/builder/reports/{id}`          | Delete a report                     |
+| POST   | `/reporting/builder/reports/{id}/favorite` | Toggle favorite                     |
+| POST   | `/reporting/builder/reports/{id}/versions` | Create a new version                |
+| GET    | `/reporting/builder/reports/{id}/versions` | List versions                       |
+| GET    | `/reporting/health`                        | Health check                        |
+
+**Frontend Pages:**
+
+| Route                  | Page                | Description                                          |
+| ---------------------- | ------------------- | ---------------------------------------------------- |
+| `/reporting`           | Reporting Dashboard | Stats cards + recent/favorite/ai/scheduled widgets   |
+| `/reporting/builder`   | Report Builder      | Create/manage reports with sections, filters, charts |
+| `/reporting/analytics` | Analytics Workspace | KPIs, trends, heatmap, pivot tables                  |
+
+**Frontend Components:**
+
+- `ai-report-generator` — AI-powered report generation from natural language
+- `chart-preview` — Chart visualization preview
+- `report-builder` — Reusable builder components
+- `report-export-panel` — Export to PDF/Excel/CSV
+- `report-filter-panel` — Filter configuration
+- `report-history` — Report version history
+- `report-preview` — Report preview rendering
+- `report-progress` — Save/version progress indicator
+- `report-template-selector` — Template selection UI
+
+**Database Migration:**
+
+- `migrations/001_reporting_tables.sql` — Creates `report_definitions`, `report_versions`, `report_templates`, `export_jobs` tables
+
 ### API Endpoints
 
-| Method | Path                               | Description                                 |
-| ------ | ---------------------------------- | ------------------------------------------- |
-| POST   | `/copilot/chat`                    | Non-streaming answer with metadata          |
-| POST   | `/copilot/chat/stream`             | Server-Sent Events stream                   |
-| POST   | `/copilot/benchmark`               | Multi-model benchmark comparison            |
-| POST   | `/copilot/continuation/clear`      | Clear continuation state for a session      |
-| POST   | `/copilot/chat/continuation/clear` | Clear continuation state (alternative path) |
-| GET    | `/copilot/health/models`           | Model pool health and labels                |
-| GET    | `/copilot/models/health`           | Per-model health summary                    |
+| Method | Path                                       | Description                                 |
+| ------ | ------------------------------------------ | ------------------------------------------- |
+| POST   | `/copilot/chat`                            | Non-streaming answer with metadata          |
+| POST   | `/copilot/chat/stream`                     | Server-Sent Events stream                   |
+| POST   | `/copilot/benchmark`                       | Multi-model benchmark comparison            |
+| POST   | `/copilot/continuation/clear`              | Clear continuation state for a session      |
+| POST   | `/copilot/chat/continuation/clear`         | Clear continuation state (alternative path) |
+| GET    | `/copilot/health/models`                   | Model pool health and labels                |
+| GET    | `/copilot/models/health`                   | Per-model health summary                    |
+| GET    | `/reporting/dashboard`                     | Dashboard summary widgets                   |
+| GET    | `/reporting/analytics/kpis`                | Revenue/expense/profit KPIs                 |
+| GET    | `/reporting/analytics/trends`              | Time-bucketed trend series                  |
+| GET    | `/reporting/analytics/heatmap`             | Payment delay heatmap                       |
+| GET    | `/reporting/analytics/pivot`               | Pivot table aggregation                     |
+| POST   | `/reporting/builder/reports`               | Create report                               |
+| GET    | `/reporting/builder/reports`               | List reports                                |
+| PUT    | `/reporting/builder/reports/{id}`          | Update report                               |
+| DELETE | `/reporting/builder/reports/{id}`          | Delete report                               |
+| POST   | `/reporting/builder/reports/{id}/favorite` | Toggle favorite                             |
+| POST   | `/reporting/builder/reports/{id}/versions` | Create version                              |
+| GET    | `/reporting/builder/reports/{id}/versions` | List versions                               |
+| GET    | `/reporting/health`                        | Reporting health check                      |
 
 ### API Examples
 
@@ -463,6 +573,29 @@ Response (milliseconds, no LLM call):
 }
 ```
 
+#### Reporting dashboard
+
+```http
+GET /reporting/dashboard
+```
+
+Response:
+
+```json
+{
+  "status": "ok",
+  "data": {
+    "total_reports": 0,
+    "draft_reports": 0,
+    "published_reports": 0,
+    "total_templates": 0,
+    "total_exports": 0,
+    "recent_reports": [],
+    "favorite_reports": []
+  }
+}
+```
+
 ### SSE Event Types
 
 | Event                                                            | Description                         |
@@ -527,6 +660,15 @@ Default endpoints:
 - Chat endpoint: `POST http://127.0.0.1:8000/copilot/chat`
 - Streaming chat: `POST http://127.0.0.1:8000/copilot/chat/stream`
 - Model health: `GET http://127.0.0.1:8000/copilot/health/models`
+- Dashboard: `GET http://127.0.0.1:8000/reporting/dashboard`
+
+#### 5. Apply database migrations
+
+Run the reporting tables migration in your Supabase SQL editor:
+
+```sql
+-- Run the contents of migrations/001_reporting_tables.sql
+```
 
 ### Frontend Setup
 
@@ -600,6 +742,10 @@ Expected target tables:
 - `bank_transactions`
 - `reconciliations`
 - `anomalies`
+- `report_definitions`
+- `report_versions`
+- `report_templates`
+- `export_jobs`
 
 Optional tuning:
 
@@ -624,7 +770,7 @@ Optional tuning:
 
 ## Not Yet Implemented
 
-- Other frontend routes (Dashboard, Transactions, Reconciliation, Reports, Settings) are sidebar placeholders only.
+- Other frontend routes (Dashboard, Transactions, Reconciliation, Settings) are sidebar placeholders only.
 - Production-grade semantic retrieval (embeddings/search/ranking) — current retrieval is rule + intent based.
 - Async database client (current Supabase client is synchronous).
 - Project documentation in `docs/` (folder exists but empty).
@@ -632,12 +778,19 @@ Optional tuning:
 - A committed `.env.example` template (backend `.env` exists locally for secrets).
 - Model quality scoring tied to benchmark evaluations (quality scores are user-rated, not automated).
 - Documentation for the Supabase schema and migration workflow.
+- Reporting utility functions in `modules/reporting/utils/reporting.utils.ts` (scaffolded, placeholder only).
+- AI report generator integration (component scaffolded, backend service not connected).
+- Report export functionality (component scaffolded, backend exporter module empty).
 
 ## Suggested Next Milestones
 
-1. Implement the remaining frontend routes (Dashboard, Transactions, Reconciliation, Reports, Settings).
+1. Implement the remaining frontend routes (Dashboard, Transactions, Reconciliation, Settings).
 2. Add `.env.example` and onboarding notes for secrets.
-3. Add unit/integration tests for routes, services, and the financial rule engine.
+3. Add unit/integration tests for routes, services, the financial rule engine, and reporting module.
 4. Upgrade retrieval to semantic search (embeddings) with ranking across all financial tables.
 5. Migrate database layer to async Supabase client for true parallel query execution.
 6. Add docs for the Supabase schema and a deployment workflow.
+7. Connect the AI report generator to the LLM pipeline for natural language report creation.
+8. Implement report export functionality (PDF/Excel/CSV generation).
+9. Add reporting utility functions and complete component integration.
+10. Pre-populate demo data for the reporting dashboard by running the migration script.

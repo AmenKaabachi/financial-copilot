@@ -1,0 +1,145 @@
+<div class="report-builder">
+  <header class="builder-header">
+    <h1>Report Builder</h1>
+    <p class="builder-subtitle">Create and manage report definitions with versioning</p>
+  </header>
+
+  <div class="builder-layout">
+    <aside class="builder-sidebar">
+      <div class="sidebar-header">
+        <h2>Reports</h2>
+        <button class="btn btn-primary" (click)="showNewReport = true">+ New</button>
+      </div>
+
+      <div class="new-report-form" *ngIf="showNewReport">
+        <input
+          type="text"
+          placeholder="Report name"
+          [(ngModel)]="newReportName"
+        />
+        <textarea
+          placeholder="Description"
+          [(ngModel)]="newReportDescription"
+        ></textarea>
+        <select [(ngModel)]="newReportSource">
+          <option value="manual">Manual</option>
+          <option value="ai">AI Generated</option>
+          <option value="template">From Template</option>
+        </select>
+        <div class="form-actions">
+          <button class="btn btn-primary" (click)="createReport()">Create</button>
+          <button class="btn btn-secondary" (click)="showNewReport = false">Cancel</button>
+        </div>
+      </div>
+
+      <div class="report-list">
+        <div
+          class="report-item"
+          *ngFor="let report of reports"
+          [class.active]="selectedReport?.id === report.id"
+          (click)="selectReport(report)"
+        >
+          <span class="report-name">{{ report.name }}</span>
+          <span class="report-status" [class]="'status-' + report.status">{{ report.status }}</span>
+          <div class="report-actions">
+            <button class="btn-icon" (click)="toggleFavorite(report.id)" title="Toggle favorite">
+              {{ report.is_favorite ? '★' : '☆' }}
+            </button>
+            <button class="btn-icon" (click)="deleteReport(report.id)" title="Delete">✕</button>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <main class="builder-main" *ngIf="selectedReport">
+      <div class="builder-toolbar">
+        <h2>{{ selectedReport.name }}</h2>
+        <div class="toolbar-actions">
+          <button class="btn btn-secondary" (click)="createVersion()">Save Version</button>
+          <button class="btn btn-primary" (click)="saveReport()">Save</button>
+        </div>
+      </div>
+
+      <div class="builder-tabs">
+        <button class="tab" [class.active]="activeTab === 'sections'" (click)="activeTab = 'sections'">Sections</button>
+        <button class="tab" [class.active]="activeTab === 'filters'" (click)="activeTab = 'filters'">Filters</button>
+        <button class="tab" [class.active]="activeTab === 'charts'" (click)="activeTab = 'charts'">Charts</button>
+      </div>
+
+      <!-- Sections Tab -->
+      <div class="tab-content" *ngIf="activeTab === 'sections'">
+        <div class="section-tree">
+          <div class="section-node" *ngFor="let section of sections">
+            <div class="section-header">
+              <input
+                type="text"
+                [(ngModel)]="section.label"
+                (blur)="updateSectionLabel(section.id, section.label)"
+              />
+              <button class="btn-icon" (click)="removeSection(section.id)">✕</button>
+            </div>
+            <span class="section-type">{{ section.type }}</span>
+          </div>
+        </div>
+        <div class="add-section-buttons">
+          <button class="btn btn-secondary" (click)="addSection('kpi')">+ KPI Section</button>
+          <button class="btn btn-secondary" (click)="addSection('chart')">+ Chart Section</button>
+          <button class="btn btn-secondary" (click)="addSection('table')">+ Table Section</button>
+          <button class="btn btn-secondary" (click)="addSection('text')">+ Text Section</button>
+        </div>
+      </div>
+
+      <!-- Filters Tab -->
+      <div class="tab-content" *ngIf="activeTab === 'filters'">
+        <div class="filter-list">
+          <div class="filter-row" *ngFor="let filter of filters; let i = index">
+            <input
+              type="text"
+              placeholder="Field"
+              [(ngModel)]="filter.field"
+              (ngModelChange)="updateFilter(i, filter.field, filter.operator, filter.value)"
+            />
+            <select [(ngModel)]="filter.operator" (ngModelChange)="updateFilter(i, filter.field, filter.operator, filter.value)">
+              <option value="equals">equals</option>
+              <option value="not_equals">not equals</option>
+              <option value="gt">greater than</option>
+              <option value="lt">less than</option>
+              <option value="contains">contains</option>
+            </select>
+            <input
+              type="text"
+              placeholder="Value"
+              [(ngModel)]="filter.value"
+              (ngModelChange)="updateFilter(i, filter.field, filter.operator, filter.value)"
+            />
+            <button class="btn-icon" (click)="removeFilter(i)">✕</button>
+          </div>
+        </div>
+        <button class="btn btn-secondary" (click)="addFilter()">+ Add Filter</button>
+      </div>
+
+      <!-- Charts Tab -->
+      <div class="tab-content" *ngIf="activeTab === 'charts'">
+        <div class="chart-list">
+          <div class="chart-row" *ngFor="let chart of charts; let i = index">
+            <select [(ngModel)]="chart.type" (ngModelChange)="updateChart(i, 'type', chart.type)">
+              <option value="bar">Bar</option>
+              <option value="line">Line</option>
+              <option value="pie">Pie</option>
+              <option value="area">Area</option>
+            </select>
+            <input type="text" placeholder="Data source" [(ngModel)]="chart.data_source" (ngModelChange)="updateChart(i, 'data_source', chart.data_source)" />
+            <input type="text" placeholder="X axis" [(ngModel)]="chart.x_axis" (ngModelChange)="updateChart(i, 'x_axis', chart.x_axis)" />
+            <input type="text" placeholder="Y axis" [(ngModel)]="chart.y_axis" (ngModelChange)="updateChart(i, 'y_axis', chart.y_axis)" />
+            <button class="btn-icon" (click)="removeChart(i)">✕</button>
+          </div>
+        </div>
+        <button class="btn btn-secondary" (click)="addChart()">+ Add Chart</button>
+      </div>
+    </main>
+
+    <main class="builder-main empty" *ngIf="!selectedReport && !loading">
+      <p>Select a report or create a new one to start building.</p>
+    </main>
+  </div>
+</div>

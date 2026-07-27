@@ -1,0 +1,169 @@
+<div class="analytics-workspace">
+  <header class="analytics-header">
+    <h1>Analytics Workspace</h1>
+    <p class="analytics-subtitle">Interactive KPIs, trends, drilldowns, and anomaly analysis</p>
+  </header>
+
+  <div class="analytics-tabs">
+    <button
+      class="tab"
+      [class.active]="activeTab === 'kpis'"
+      (click)="activeTab = 'kpis'"
+    >
+      KPIs
+    </button>
+    <button
+      class="tab"
+      [class.active]="activeTab === 'trends'"
+      (click)="activeTab = 'trends'"
+    >
+      Trends
+    </button>
+    <button
+      class="tab"
+      [class.active]="activeTab === 'heatmap'"
+      (click)="activeTab = 'heatmap'"
+    >
+      Heatmap
+    </button>
+    <button
+      class="tab"
+      [class.active]="activeTab === 'pivot'"
+      (click)="activeTab = 'pivot'"
+    >
+      Pivot
+    </button>
+  </div>
+
+  <div class="analytics-content" *ngIf="loading">
+    <p>Loading analytics data...</p>
+  </div>
+
+  <div class="analytics-content" *ngIf="error">
+    <p>Failed to load analytics data. Please try again.</p>
+    <button (click)="refreshAll()">Retry</button>
+  </div>
+
+  <!-- KPI Strip -->
+  <div class="kpi-strip" *ngIf="activeTab === 'kpis' && kpis">
+    <div class="kpi-card">
+      <span class="kpi-label">Revenue</span>
+      <span class="kpi-value">{{ kpis.revenue.total_revenue | number:'1.2-2' }}</span>
+      <span class="kpi-sub">{{ kpis.revenue.paid_invoice_count }} paid invoices</span>
+    </div>
+    <div class="kpi-card">
+      <span class="kpi-label">Expenses</span>
+      <span class="kpi-value">{{ kpis.expenses.total_expenses | number:'1.2-2' }}</span>
+      <span class="kpi-sub">{{ kpis.expenses.expense_count }} expense entries</span>
+    </div>
+    <div class="kpi-card">
+      <span class="kpi-label">Net Profit</span>
+      <span class="kpi-value">{{ kpis.profit.net_profit | number:'1.2-2' }}</span>
+      <span class="kpi-sub">{{ kpis.profit.profit_margin }}% margin</span>
+    </div>
+    <div class="kpi-card">
+      <span class="kpi-label">Cash Flow</span>
+      <span class="kpi-value">{{ kpis.cash_flow.net_cash_flow | number:'1.2-2' }}</span>
+      <span class="kpi-sub">{{ kpis.cash_flow.total_inflows | number:'1.2-2' }} inflows</span>
+    </div>
+    <div class="kpi-card">
+      <span class="kpi-label">Outstanding</span>
+      <span class="kpi-value">{{ kpis.outstanding_invoices.total_outstanding | number:'1.2-2' }}</span>
+      <span class="kpi-sub">{{ kpis.outstanding_invoices.outstanding_count }} invoices</span>
+    </div>
+    <div class="kpi-card">
+      <span class="kpi-label">Payment Delays</span>
+      <span class="kpi-value">{{ kpis.payment_delays.delayed_count }}</span>
+      <span class="kpi-sub">{{ kpis.payment_delays.total_delayed_amount | number:'1.2-2' }} delayed</span>
+    </div>
+    <div class="kpi-card">
+      <span class="kpi-label">Reconciliation</span>
+      <span class="kpi-value">{{ kpis.reconciliation_rate.reconciliation_rate }}%</span>
+      <span class="kpi-sub">{{ kpis.reconciliation_rate.reconciled_count }} / {{ kpis.reconciliation_rate.total_invoices }}</span>
+    </div>
+  </div>
+
+  <!-- Trends -->
+  <div class="trend-section" *ngIf="activeTab === 'trends'">
+    <div class="trend-controls">
+      <label>Metric:</label>
+      <select [(ngModel)]="trendMetric" (change)="loadTrends()">
+        <option value="amount">Amount</option>
+        <option value="count">Count</option>
+      </select>
+      <label>Bucket:</label>
+      <select [(ngModel)]="trendBucket" (change)="loadTrends()">
+        <option value="day">Day</option>
+        <option value="month">Month</option>
+        <option value="quarter">Quarter</option>
+        <option value="year">Year</option>
+      </select>
+    </div>
+    <div class="trend-chart" *ngIf="trends.length > 0">
+      <div class="trend-bar" *ngFor="let point of trends">
+        <span class="trend-label">{{ point.period }}</span>
+        <div class="trend-bar-fill" [style.width.%]="getMaxTrendValue() > 0 ? (point.value / getMaxTrendValue() * 100) : 0"></div>
+        <span class="trend-value">{{ point.value | number:'1.2-2' }}</span>
+      </div>
+    </div>
+    <div class="trend-empty" *ngIf="trends.length === 0 && !loading">
+      <p>No trend data available for the selected period.</p>
+    </div>
+  </div>
+
+  <!-- Heatmap -->
+  <div class="heatmap-section" *ngIf="activeTab === 'heatmap' && heatmapData">
+    <div class="heatmap-grid">
+      <div class="heatmap-header" *ngFor="let sev of heatmapData.severities">{{ sev }}</div>
+      <div class="heatmap-row" *ngFor="let date of heatmapData.dates; let i = index">
+        <span class="heatmap-date">{{ date }}</span>
+        <div
+          class="heatmap-cell"
+          *ngFor="let sev of heatmapData.severities; let j = index"
+          [style.background-intensity]="heatmapData.matrix[i]?.[j] || 0"
+        >
+          {{ heatmapData.matrix[i]?.[j] || 0 }}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Pivot -->
+  <div class="pivot-section" *ngIf="activeTab === 'pivot'">
+    <div class="pivot-controls">
+      <label>Row:</label>
+      <input [(ngModel)]="pivotRowField" (change)="loadPivot()" />
+      <label>Column:</label>
+      <input [(ngModel)]="pivotColumnField" (change)="loadPivot()" />
+      <label>Value:</label>
+      <input [(ngModel)]="pivotValueField" (change)="loadPivot()" />
+      <label>Aggregate:</label>
+      <select [(ngModel)]="pivotAggFunc" (change)="loadPivot()">
+        <option value="sum">Sum</option>
+        <option value="avg">Average</option>
+        <option value="count">Count</option>
+      </select>
+    </div>
+    <table class="pivot-table" *ngIf="pivotData.length > 0">
+      <thead>
+        <tr>
+          <th>{{ pivotRowField }}</th>
+          <th>Total</th>
+          <th>Count</th>
+          <th *ngIf="pivotAggFunc === 'avg'">Average</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr *ngFor="let row of pivotData">
+          <td>{{ row.group }}</td>
+          <td>{{ row.total | number:'1.2-2' }}</td>
+          <td>{{ row.count }}</td>
+          <td *ngIf="pivotAggFunc === 'avg'">{{ row.average | number:'1.2-2' }}</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="pivot-empty" *ngIf="pivotData.length === 0 && !loading">
+      <p>No pivot data available.</p>
+    </div>
+  </div>
+</div>

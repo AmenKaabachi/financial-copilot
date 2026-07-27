@@ -15,7 +15,7 @@ BACKEND_DIR = CURRENT_DIR.parent
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from database.supabase_client import get_supabase_client
+from app.shared.database.supabase_client import get_supabase_client
 
 DATASET_FILES = {
     "erp_transactions": BACKEND_DIR.parent / "datasets" / "erp" / "erp_transactions.csv",

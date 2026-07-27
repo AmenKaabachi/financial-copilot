@@ -1,5 +1,5 @@
 import { Injectable, signal, computed, NgZone } from '@angular/core';
-import { BenchmarkResponse, BenchmarkResult } from '../../features/benchmark/benchmark.models';
+import { BenchmarkResponse, BenchmarkResult } from '../../modules/benchmark/benchmark.models';
 
 const STORAGE_KEY = 'benchmark_session';
 const SESSION_TTL_MS = 2 * 60 * 60 * 1000;
