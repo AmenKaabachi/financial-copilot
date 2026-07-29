@@ -1,0 +1,23 @@
+<div class="reporting-shell">
+  <!-- Navigation with tabs -->
+  <nav class="reporting-nav">
+    <div class="reporting-tabs">
+      <a
+        *ngFor="let tab of navTabs"
+        [routerLink]="tab.route"
+        routerLinkActive="active"
+        [routerLinkActiveOptions]="{ exact: true }"
+        class="reporting-tab"
+        [attr.data-tab]="tab.id"
+      >
+        <!-- Icons removed - just labels now -->
+        <span class="tab-label">{{ tab.label }}</span>
+      </a>
+    </div>
+  </nav>
+
+  <!-- Content Area -->
+  <div class="reporting-content">
+    <router-outlet></router-outlet>
+  </div>
+</div>

@@ -15,18 +15,18 @@ class ReportService:
     @staticmethod
     def list_reports(
         status: Optional[str] = None,
-        source: Optional[str] = None,
+        report_type: Optional[str] = None,
         owner_id: Optional[str] = None,
         limit: int = 20,
         offset: int = 0,
     ) -> List[Dict[str, Any]]:
         query = _table("report_definitions").select(
-            "id, name, description, version, tags, owner_id, source, status, definition, is_favorite, created_at, updated_at"
+            "id, name, description, report_type, owner_id, status, definition, is_favorite, created_at, updated_at"
         )
         if status:
             query = query.eq("status", status)
-        if source:
-            query = query.eq("source", source)
+        if report_type:
+            query = query.eq("report_type", report_type)
         if owner_id:
             query = query.eq("owner_id", owner_id)
         query = query.order("created_at", desc=True).range(offset, offset + limit - 1)
@@ -42,7 +42,7 @@ class ReportService:
         try:
             result = (
                 _table("report_definitions")
-                .select("id, name, description, version, tags, owner_id, source, status, definition, is_favorite, created_at, updated_at")
+                .select("id, name, description, report_type, owner_id, status, definition, is_favorite, created_at, updated_at")
                 .eq("id", report_id)
                 .single()
                 .execute()
@@ -59,10 +59,8 @@ class ReportService:
             record = {
                 "name": data.get("name", ""),
                 "description": data.get("description", ""),
-                "version": 1,
-                "tags": data.get("tags", []),
+                "report_type": data.get("report_type", "custom"),
                 "owner_id": data.get("owner_id"),
-                "source": data.get("source", "manual"),
                 "status": data.get("status", "draft"),
                 "definition": data.get("definition", {}),
                 "is_favorite": data.get("is_favorite", False),
@@ -121,7 +119,17 @@ class ReportService:
             if not report:
                 return None
             now = datetime.now(timezone.utc).isoformat()
-            new_version = report.get("version", 0) + 1
+            # Get current version count from report_versions table
+            versions_result = (
+                _table("report_versions")
+                .select("version_number")
+                .eq("report_id", report_id)
+                .order("version_number", desc=True)
+                .limit(1)
+                .execute()
+            )
+            current_max = versions_result.data[0]["version_number"] if versions_result.data else 0
+            new_version = current_max + 1
             record = {
                 "report_id": report_id,
                 "version_number": new_version,
@@ -131,7 +139,6 @@ class ReportService:
                 "created_at": now,
             }
             result = _table("report_versions").insert(record).execute()
-            ReportService.update_report(report_id, {"version": new_version, "definition": definition})
             return result.data[0] if result.data else None
         except Exception as exc:
             logger.warning("Failed to create version for report %s: %s", report_id, exc)
@@ -168,3 +175,92 @@ class ReportService:
         except Exception as exc:
             logger.warning("Failed to get version %d for report %s: %s", version_number, report_id, exc)
             return None
+
+    # --- Template Methods ---
+
+    @staticmethod
+    def list_templates(
+        category: Optional[str] = None,
+        scope: Optional[str] = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> List[Dict[str, Any]]:
+        try:
+            query = _table("report_templates").select(
+                "id, name, category, scope, definition, thumbnail_url, created_by, is_favorite, created_at, updated_at"
+            )
+            if category:
+                query = query.eq("category", category)
+            if scope:
+                query = query.eq("scope", scope)
+            query = query.order("created_at", desc=True).range(offset, offset + limit - 1)
+            result = query.execute()
+            return result.data or []
+        except Exception as exc:
+            logger.warning("Failed to list templates: %s", exc)
+            return []
+
+    @staticmethod
+    def get_template(template_id: str) -> Optional[Dict[str, Any]]:
+        try:
+            result = (
+                _table("report_templates")
+                .select("id, name, category, scope, definition, thumbnail_url, created_by, is_favorite, created_at, updated_at")
+                .eq("id", template_id)
+                .single()
+                .execute()
+            )
+            return result.data
+        except Exception as exc:
+            logger.warning("Failed to get template %s: %s", template_id, exc)
+            return None
+
+    # --- Export Methods ---
+
+    @staticmethod
+    def create_export(
+        report_id: str,
+        format: str = "pdf",
+        version_id: Optional[str] = None,
+        requested_by: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        try:
+            now = datetime.now(timezone.utc).isoformat()
+            # If no version specified, get the latest version
+            if not version_id:
+                versions = ReportService.list_versions(report_id, limit=1)
+                version_id = versions[0]["id"] if versions else None
+            record = {
+                "report_id": report_id,
+                "version_id": version_id,
+                "format": format,
+                "status": "queued",
+                "file_url": "",
+                "requested_at": now,
+                "completed_at": None,
+            }
+            result = _table("report_exports").insert(record).execute()
+            return result.data[0] if result.data else None
+        except Exception as exc:
+            logger.warning("Failed to create export for report %s: %s", report_id, exc)
+            return None
+
+    @staticmethod
+    def list_exports(
+        report_id: str,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> List[Dict[str, Any]]:
+        try:
+            result = (
+                _table("report_exports")
+                .select("id, report_id, version_id, format, status, file_url, requested_at, completed_at")
+                .eq("report_id", report_id)
+                .order("requested_at", desc=True)
+                .range(offset, offset + limit - 1)
+                .execute()
+            )
+            return result.data or []
+        except Exception as exc:
+            logger.warning("Failed to list exports for report %s: %s", report_id, exc)
+            return []

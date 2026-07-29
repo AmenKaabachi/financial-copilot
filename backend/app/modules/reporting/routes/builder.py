@@ -13,13 +13,13 @@ router = APIRouter()
 @router.get("/reports")
 def list_reports(
     status: Optional[str] = Query(default=None),
-    source: Optional[str] = Query(default=None),
+    report_type: Optional[str] = Query(default=None),
     owner_id: Optional[str] = Query(default=None),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
 ):
     reports = ReportService.list_reports(
-        status=status, source=source, owner_id=owner_id, limit=limit, offset=offset
+        status=status, report_type=report_type, owner_id=owner_id, limit=limit, offset=offset
     )
     return {"status": "ok", "data": reports, "total": len(reports)}
 
@@ -35,6 +35,9 @@ def get_report(report_id: str):
 @router.post("/reports")
 async def create_report(request: Request):
     body = await request.json()
+    # Map frontend 'source' field to 'report_type' for DB compatibility
+    if "source" in body and "report_type" not in body:
+        body["report_type"] = body.pop("source")
     report = ReportService.create_report(body)
     if not report:
         return {"status": "error", "message": "Failed to create report"}
@@ -44,6 +47,9 @@ async def create_report(request: Request):
 @router.put("/reports/{report_id}")
 async def update_report(report_id: str, request: Request):
     body = await request.json()
+    # Map frontend 'source' field to 'report_type' for DB compatibility
+    if "source" in body and "report_type" not in body:
+        body["report_type"] = body.pop("source")
     report = ReportService.update_report(report_id, body)
     if not report:
         return {"status": "error", "message": "Failed to update report"}
@@ -90,3 +96,52 @@ def get_version(report_id: str, version_number: int):
     if not version:
         return {"status": "error", "message": "Version not found"}
     return {"status": "ok", "data": version}
+
+
+# --- Template Endpoints ---
+
+@router.get("/templates")
+def list_templates(
+    category: Optional[str] = Query(default=None),
+    scope: Optional[str] = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+):
+    templates = ReportService.list_templates(
+        category=category, scope=scope, limit=limit, offset=offset
+    )
+    return {"status": "ok", "data": templates, "total": len(templates)}
+
+
+@router.get("/templates/{template_id}")
+def get_template(template_id: str):
+    template = ReportService.get_template(template_id)
+    if not template:
+        return {"status": "error", "message": "Template not found"}
+    return {"status": "ok", "data": template}
+
+
+# --- Export Endpoints ---
+
+@router.post("/reports/{report_id}/export")
+async def create_export(report_id: str, request: Request):
+    body = await request.json()
+    export = ReportService.create_export(
+        report_id=report_id,
+        format=body.get("format", "pdf"),
+        version_id=body.get("version_id"),
+        requested_by=body.get("requested_by"),
+    )
+    if not export:
+        return {"status": "error", "message": "Failed to create export job"}
+    return {"status": "ok", "data": export}
+
+
+@router.get("/reports/{report_id}/exports")
+def list_exports(
+    report_id: str,
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+):
+    exports = ReportService.list_exports(report_id, limit=limit, offset=offset)
+    return {"status": "ok", "data": exports, "total": len(exports)}

@@ -58,7 +58,7 @@ class DashboardService:
         try:
             result = (
                 _table(table_name)
-                .select("id, name, description, status, source, created_at, updated_at")
+                .select("id, name, description, status, report_type, created_at, updated_at")
                 .order("created_at", desc=True)
                 .limit(limit)
                 .execute()
@@ -73,7 +73,7 @@ class DashboardService:
         try:
             result = (
                 _table(table_name)
-                .select("id, name, description, status, source, created_at, updated_at")
+                .select("id, name, description, status, report_type, created_at, updated_at")
                 .eq("is_favorite", True)
                 .order("created_at", desc=True)
                 .limit(limit)

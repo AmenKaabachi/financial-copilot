@@ -1,55 +1,160 @@
-<div class="dashboard">
-  <header class="dashboard-header">
-    <h1>Reporting Dashboard</h1>
-    <p class="dashboard-subtitle">Manage reports, templates, and analytics from a single view</p>
-  </header>
-
-  <div class="dashboard-stats" *ngIf="!loading && summary">
-    <div class="stat-card">
-      <span class="stat-value">{{ summary.total_reports }}</span>
-      <span class="stat-label">Total Reports</span>
+<div class="max-w-6xl mx-auto px-4">
+  <!-- Stats -->
+  <div *ngIf="summary" class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+    <div class="flex flex-col p-4 bg-[#F7F8FA] border border-[#E7E9EE] rounded-lg transition-all duration-200 hover:bg-white hover:border-[#D1D5DB]">
+      <span class="text-2xl font-bold text-[#0F172A]">{{ summary.total_reports }}</span>
+      <span class="text-xs font-medium text-[#6B7280] uppercase tracking-wider mt-1">Total</span>
     </div>
-    <div class="stat-card">
-      <span class="stat-value">{{ summary.draft_reports }}</span>
-      <span class="stat-label">Drafts</span>
+    <div class="flex flex-col p-4 bg-[#F7F8FA] border border-[#E7E9EE] rounded-lg transition-all duration-200 hover:bg-white hover:border-[#D1D5DB]">
+      <span class="text-2xl font-bold text-[#0F172A]">{{ summary.published_reports }}</span>
+      <span class="text-xs font-medium text-[#6B7280] uppercase tracking-wider mt-1">Published</span>
     </div>
-    <div class="stat-card">
-      <span class="stat-value">{{ summary.published_reports }}</span>
-      <span class="stat-label">Published</span>
+    <div class="flex flex-col p-4 bg-[#F7F8FA] border border-[#E7E9EE] rounded-lg transition-all duration-200 hover:bg-white hover:border-[#D1D5DB]">
+      <span class="text-2xl font-bold text-[#0F172A]">{{ summary.draft_reports }}</span>
+      <span class="text-xs font-medium text-[#6B7280] uppercase tracking-wider mt-1">Drafts</span>
     </div>
-    <div class="stat-card">
-      <span class="stat-value">{{ summary.total_templates }}</span>
-      <span class="stat-label">Templates</span>
+    <div class="flex flex-col p-4 bg-[#F7F8FA] border border-[#E7E9EE] rounded-lg transition-all duration-200 hover:bg-white hover:border-[#D1D5DB]">
+      <span class="text-2xl font-bold text-[#0F172A]">{{ summary.total_templates }}</span>
+      <span class="text-xs font-medium text-[#6B7280] uppercase tracking-wider mt-1">Templates</span>
     </div>
   </div>
 
-  <div class="dashboard-grid" *ngIf="!loading && summary">
-    <div class="widget" *ngFor="let widget of widgets">
-      <div class="widget-header">
-        <h3>{{ widget.title }}</h3>
-        <span class="widget-count" *ngIf="widget.value">{{ widget.value }}</span>
+  <!-- Actions -->
+  <div class="flex justify-between items-center mb-4">
+    <span class="text-sm text-[#6B7280] font-medium">{{ reports.length }} reports</span>
+    <button (click)="showCreateModal = true" class="flex items-center gap-1.5 px-4 py-2 bg-[#2F5FE0] text-white border-none rounded-md text-sm font-semibold transition-all duration-200 hover:bg-[#254BB3] hover:-translate-y-0.5">
+      <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <line x1="12" y1="5" x2="12" y2="19"/>
+        <line x1="5" y1="12" x2="19" y2="12"/>
+      </svg>
+      New Report
+    </button>
+  </div>
+
+  <!-- Loading -->
+  <div *ngIf="loading && reports.length === 0" class="flex flex-col items-center py-12 text-[#6B7280]">
+    <div class="w-8 h-8 border-3 border-[#E7E9EE] border-t-[#2F5FE0] rounded-full animate-spin mb-3"></div>
+    <p class="text-sm">Loading...</p>
+  </div>
+
+  <!-- Error -->
+  <div *ngIf="error" class="text-center py-8 px-5 bg-white border border-[#E7E9EE] rounded-lg text-[#6B7280]">
+    <p class="text-sm mb-3">Something went wrong. Please try again.</p>
+    <button (click)="loadDashboard()" class="px-4 py-1.5 bg-[#2F5FE0] text-white border-none rounded-md text-sm font-medium transition-all duration-200 hover:bg-[#254BB3]">Retry</button>
+  </div>
+
+  <!-- Reports List -->
+  <div *ngIf="!loading" class="space-y-2">
+    <div *ngFor="let report of reports" class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 p-3 bg-white border border-[#E7E9EE] rounded-lg transition-all duration-200 hover:border-[#D1D5DB] hover:shadow-sm">
+      <div class="flex items-center gap-3 flex-1 min-w-0 w-full sm:w-auto">
+        <button
+          (click)="toggleFavorite(report.id)"
+          [class]="report.is_favorite ? 'text-[#F59E0B]' : 'text-[#D1D5DB]'"
+          class="text-base transition-all duration-200 hover:scale-110 flex-shrink-0"
+        >
+          {{ report.is_favorite ? '★' : '☆' }}
+        </button>
+
+        <div class="flex flex-col gap-0.5 min-w-0 flex-1">
+          <a [routerLink]="['/reporting/builder', report.id]" class="font-semibold text-[#0F172A] text-sm no-underline hover:text-[#2F5FE0] transition-colors duration-200 truncate">
+            {{ report.name }}
+          </a>
+          <span class="text-xs text-[#6B7280] truncate">{{ report.description || 'No description' }}</span>
+        </div>
+
+        <span class="text-xs font-semibold px-2.5 py-0.5 rounded-full flex-shrink-0" [class]="report.status === 'draft' ? 'bg-amber-50 text-amber-800' : report.status === 'published' ? 'bg-emerald-50 text-emerald-800' : 'bg-gray-50 text-gray-600'">
+          {{ report.status }}
+        </span>
+
+        <span class="text-xs text-[#6B7280] flex-shrink-0 hidden sm:block">{{ formatDate(report.created_at) }}</span>
       </div>
 
-      <div class="widget-empty" *ngIf="isWidgetEmpty(widget)">
-        <p>{{ widget.emptyMessage }}</p>
-      </div>
+      <div class="flex items-center gap-1 w-full sm:w-auto justify-end">
+        <a [routerLink]="['/reporting/builder', report.id]" class="flex items-center justify-center w-8 h-8 text-[#6B7280] rounded-md transition-all duration-200 hover:bg-[#F7F8FA] hover:text-[#0F172A]">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+          </svg>
+        </a>
 
-      <div class="widget-list" *ngIf="!isWidgetEmpty(widget)">
-        <div class="widget-item" *ngFor="let report of widget.items">
-          <span class="item-name">{{ report.name }}</span>
-          <span class="item-status" [class]="'status-' + report.status">{{ report.status }}</span>
-          <span class="item-source">{{ report.source }}</span>
+        <div class="relative group">
+          <button class="flex items-center justify-center w-8 h-8 text-[#6B7280] rounded-md transition-all duration-200 hover:bg-[#F7F8FA] hover:text-[#0F172A]">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+          </button>
+          <div class="absolute right-0 top-full mt-1 bg-white border border-[#E7E9EE] rounded-md shadow-lg z-10 min-w-[100px] hidden group-hover:block p-1">
+            <button (click)="exportReport(report.id, 'pdf')" class="w-full text-left px-3 py-1.5 text-sm text-[#334155] rounded transition-all duration-200 hover:bg-[#F7F8FA]">PDF</button>
+            <button (click)="exportReport(report.id, 'excel')" class="w-full text-left px-3 py-1.5 text-sm text-[#334155] rounded transition-all duration-200 hover:bg-[#F7F8FA]">Excel</button>
+            <button (click)="exportReport(report.id, 'csv')" class="w-full text-left px-3 py-1.5 text-sm text-[#334155] rounded transition-all duration-200 hover:bg-[#F7F8FA]">CSV</button>
+          </div>
+        </div>
+
+        <button (click)="deleteReport(report.id)" class="flex items-center justify-center w-8 h-8 text-[#6B7280] rounded-md transition-all duration-200 hover:bg-red-50 hover:text-[#EF4444]">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="3 6 5 6 21 6"/>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Empty State -->
+    <div *ngIf="reports.length === 0" class="text-center py-12 px-6 bg-white border border-[#E7E9EE] rounded-lg">
+      <p class="text-sm text-[#6B7280]">No reports yet. Create your first report to get started.</p>
+    </div>
+  </div>
+
+  <!-- Templates -->
+  <div *ngIf="templates.length > 0" class="mt-8">
+    <div class="flex items-center gap-2 mb-3">
+      <span class="text-sm font-semibold text-[#0F172A]">Templates</span>
+      <span class="text-xs text-[#6B7280] bg-[#F7F8FA] px-2 py-0.5 rounded-full">{{ templates.length }}</span>
+    </div>
+    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+      <div *ngFor="let template of templates" class="flex items-center gap-2.5 p-2.5 bg-white border border-[#E7E9EE] rounded-lg transition-all duration-200 hover:border-[#D1D5DB] hover:-translate-y-0.5 hover:shadow-sm cursor-pointer">
+        <div class="flex items-center justify-center w-8 h-8 bg-[#EBF0FF] rounded-md font-bold text-sm text-[#2F5FE0] flex-shrink-0">
+          {{ template.name.charAt(0) }}
+        </div>
+        <div class="flex flex-col gap-0.5 min-w-0">
+          <span class="text-sm font-semibold text-[#0F172A] truncate">{{ template.name }}</span>
+          <span class="text-xs text-[#6B7280]">{{ template.category }}</span>
         </div>
       </div>
-
-      <div class="widget-loading" *ngIf="widget.loading">
-        <p>Loading...</p>
-      </div>
     </div>
   </div>
 
-  <div class="dashboard-error" *ngIf="error">
-    <p>Failed to load dashboard data. Please try again.</p>
-    <button (click)="loadDashboard()">Retry</button>
+  <!-- Create Modal -->
+  <div *ngIf="showCreateModal" class="fixed inset-0 bg-black/30 flex items-center justify-center z-50 animate-fadeIn" (click)="showCreateModal = false">
+    <div class="bg-white rounded-xl w-[440px] max-w-[90vw] shadow-xl animate-slideUp" (click)="$event.stopPropagation()">
+      <div class="flex justify-between items-center p-4 border-b border-[#E7E9EE]">
+        <h3 class="text-base font-semibold text-[#0F172A] m-0">New Report</h3>
+        <button (click)="showCreateModal = false" class="bg-none border-none text-[#6B7280] text-lg cursor-pointer p-1 leading-none rounded transition-all duration-200 hover:bg-[#F7F8FA] hover:text-[#0F172A] w-7 h-7 flex items-center justify-center">✕</button>
+      </div>
+      <div class="p-5">
+        <div class="mb-4">
+          <label class="text-sm font-semibold text-[#0F172A] block mb-1">Name</label>
+          <input type="text" [(ngModel)]="newReportName" placeholder="Report name" class="w-full px-3 py-2 border border-[#E7E9EE] rounded-md text-sm text-[#0F172A] bg-white transition-all duration-200 focus:outline-none focus:border-[#2F5FE0] focus:ring-2 focus:ring-[#2F5FE0]/10" />
+        </div>
+        <div class="mb-4">
+          <label class="text-sm font-semibold text-[#0F172A] block mb-1">Description</label>
+          <textarea [(ngModel)]="newReportDescription" placeholder="Brief description" rows="3" class="w-full px-3 py-2 border border-[#E7E9EE] rounded-md text-sm text-[#0F172A] bg-white transition-all duration-200 focus:outline-none focus:border-[#2F5FE0] focus:ring-2 focus:ring-[#2F5FE0]/10 resize-y min-h-[60px]"></textarea>
+        </div>
+        <div class="mb-4">
+          <label class="text-sm font-semibold text-[#0F172A] block mb-1">Source</label>
+          <select [(ngModel)]="newReportSource" class="w-full px-3 py-2 border border-[#E7E9EE] rounded-md text-sm text-[#0F172A] bg-white transition-all duration-200 focus:outline-none focus:border-[#2F5FE0] focus:ring-2 focus:ring-[#2F5FE0]/10">
+            <option value="manual">Manual</option>
+            <option value="ai">AI Generated</option>
+            <option value="template">From Template</option>
+          </select>
+        </div>
+      </div>
+      <div class="flex justify-end gap-2 p-4 border-t border-[#E7E9EE]">
+        <button (click)="showCreateModal = false" class="px-4 py-2 bg-transparent text-[#6B7280] border border-[#E7E9EE] rounded-md text-sm font-medium transition-all duration-200 hover:bg-[#F7F8FA] hover:text-[#0F172A]">Cancel</button>
+        <button (click)="createReport()" [disabled]="!newReportName.trim()" class="px-5 py-2 bg-[#2F5FE0] text-white border-none rounded-md text-sm font-semibold transition-all duration-200 hover:bg-[#254BB3] disabled:opacity-50 disabled:cursor-not-allowed">Create</button>
+      </div>
+    </div>
   </div>
 </div>

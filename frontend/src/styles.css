@@ -1,5 +1,10 @@
 /* ========== BankMatch Design System Tokens ========== */
+
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 :root {
   /* Brand */
@@ -41,6 +46,31 @@
 
   /* Shadows */
   --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.04);
+
+  /* ========== Enhanced Design Tokens ========== */
+
+  /* Gradients */
+  --gradient-primary: linear-gradient(135deg, #2F5FE0 0%, #6366f1 100%);
+  --gradient-header: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  --gradient-card: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+
+  /* Shadows (enhanced) */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.08);
+  --shadow-xl: 0 16px 48px rgba(0, 0, 0, 0.1);
+
+  /* Transitions */
+  --transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Focus ring */
+  --focus-ring: 0 0 0 3px rgba(47, 95, 224, 0.15);
+
+  /* Card */
+  --card-radius: 12px;
+  --card-padding: 20px;
 }
 
 body {
@@ -63,4 +93,23 @@ html {
 /* Remove default button styles */
 button {
   font-family: inherit;
+}
+/* Add these to your styles.css after the Tailwind imports */
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.2s ease-in-out;
+}
+
+.animate-slideUp {
+  animation: slideUp 0.25s ease-in-out;
 }

@@ -2,33 +2,28 @@ import { Component, OnInit } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { ActivatedRoute, RouterModule } from '@angular/router';
 import { ReportDefinition } from '../../models/reporting.models';
 
 interface SectionNode {
   id: string;
-  type: string;
+  type: 'kpi' | 'chart' | 'table' | 'text';
   label: string;
-  children?: SectionNode[];
+  config: Record<string, any>;
 }
 
-interface FilterOption {
-  field: string;
-  operator: string;
-  value: string;
-}
-
-interface ChartConfig {
-  type: string;
-  data_source: string;
-  x_axis: string;
-  y_axis: string;
-  group_by?: string;
+interface AvailableElement {
+  type: 'kpi' | 'chart' | 'table' | 'text';
+  label: string;
+  description: string;
+  icon: string;
+  defaultConfig: Record<string, any>;
 }
 
 @Component({
   selector: 'app-report-builder',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, RouterModule],
   templateUrl: './report-builder.component.html',
   styleUrl: './report-builder.component.css',
 })
@@ -36,21 +31,155 @@ export class ReportBuilderComponent implements OnInit {
   reports: ReportDefinition[] = [];
   selectedReport: ReportDefinition | null = null;
   sections: SectionNode[] = [];
-  filters: FilterOption[] = [];
-  charts: ChartConfig[] = [];
   loading = true;
   error = false;
+  saving = false;
 
-  activeTab = 'sections';
+  activeTab: 'sections' | 'elements' | 'export' | 'versions' = 'sections';
   showNewReport = false;
   newReportName = '';
   newReportDescription = '';
-  newReportSource: 'manual' | 'ai' | 'template' = 'manual';
+  newReportSource: string = 'manual';
+  changeNote = '';
 
-  constructor(private http: HttpClient) {}
+  // Export
+  exportFormat: string = 'pdf';
+  exportStatus: string = '';
+
+  // Versions
+  versions: any[] = [];
+
+  // Available elements for the palette
+  availableElements: AvailableElement[] = [
+    {
+      type: 'kpi',
+      label: 'Revenue KPI',
+      description: 'Total revenue with paid invoice count',
+      icon: '💰',
+      defaultConfig: { kpis: ['revenue'] },
+    },
+    {
+      type: 'kpi',
+      label: 'Expenses KPI',
+      description: 'Total expenses with count',
+      icon: '💸',
+      defaultConfig: { kpis: ['expenses'] },
+    },
+    {
+      type: 'kpi',
+      label: 'Profit KPI',
+      description: 'Net profit with margin percentage',
+      icon: '📈',
+      defaultConfig: { kpis: ['profit'] },
+    },
+    {
+      type: 'kpi',
+      label: 'Reconciliation Rate',
+      description: 'Reconciliation success rate',
+      icon: '✅',
+      defaultConfig: { kpis: ['reconciliation_rate'] },
+    },
+    {
+      type: 'kpi',
+      label: 'Matching Accuracy',
+      description: 'Detailed matching accuracy stats',
+      icon: '🎯',
+      defaultConfig: { kpis: ['matching_accuracy'] },
+    },
+    {
+      type: 'kpi',
+      label: 'Anomaly Stats',
+      description: 'Total anomalies and severity breakdown',
+      icon: '⚠️',
+      defaultConfig: { kpis: ['anomaly_stats'] },
+    },
+    {
+      type: 'kpi',
+      label: 'Transaction Summary',
+      description: 'ERP and bank transaction counts',
+      icon: '🔄',
+      defaultConfig: { kpis: ['total_transactions'] },
+    },
+    {
+      type: 'chart',
+      label: 'Reconciliation Trend',
+      description: 'Success/failure over time (line chart)',
+      icon: '📊',
+      defaultConfig: { chart_type: 'line', data_source: 'reconciliation_trend' },
+    },
+    {
+      type: 'chart',
+      label: 'Transaction Volume',
+      description: 'Monthly transaction amounts (bar chart)',
+      icon: '📊',
+      defaultConfig: { chart_type: 'bar', data_source: 'transaction_volume' },
+    },
+    {
+      type: 'chart',
+      label: 'Anomaly Distribution',
+      description: 'Anomalies by severity (donut chart)',
+      icon: '🍩',
+      defaultConfig: { chart_type: 'donut', data_source: 'anomaly_distribution' },
+    },
+    {
+      type: 'chart',
+      label: 'Bank vs ERP',
+      description: 'Side-by-side volume comparison',
+      icon: '📊',
+      defaultConfig: { chart_type: 'grouped_bar', data_source: 'bank_vs_erp' },
+    },
+    {
+      type: 'chart',
+      label: 'Payment Status',
+      description: 'Paid vs outstanding distribution',
+      icon: '🥧',
+      defaultConfig: { chart_type: 'pie', data_source: 'payment_status' },
+    },
+    {
+      type: 'table',
+      label: 'Reconciliation Data',
+      description: 'Detailed reconciliation records table',
+      icon: '📋',
+      defaultConfig: { data_source: 'reconciliations', columns: ['id', 'status', 'amount'] },
+    },
+    {
+      type: 'table',
+      label: 'Anomaly Data',
+      description: 'Anomaly records with severity and type',
+      icon: '📋',
+      defaultConfig: { data_source: 'anomalies', columns: ['id', 'severity', 'type', 'amount'] },
+    },
+    {
+      type: 'table',
+      label: 'Transaction Data',
+      description: 'ERP transaction records',
+      icon: '📋',
+      defaultConfig: { data_source: 'erp_transactions', columns: ['id', 'supplier', 'amount', 'status'] },
+    },
+    {
+      type: 'text',
+      label: 'Summary Section',
+      description: 'Add a text summary or description',
+      icon: '📝',
+      defaultConfig: { content: 'Enter your summary text here...' },
+    },
+  ];
+
+  constructor(
+    private http: HttpClient,
+    private route: ActivatedRoute
+  ) {}
 
   ngOnInit(): void {
-    this.loadReports();
+    // Check if we have a report ID from the route
+    this.route.params.subscribe(params => {
+      const reportId = params['id'];
+      if (reportId) {
+        this.loadReport(reportId);
+      } else {
+        this.loadReports();
+      }
+    });
   }
 
   loadReports(): void {
@@ -68,12 +197,33 @@ export class ReportBuilderComponent implements OnInit {
     });
   }
 
+  loadReport(reportId: string): void {
+    this.http.get<{ status: string; data: ReportDefinition }>(`/reporting/builder/reports/${reportId}`).subscribe({
+      next: (res) => {
+        if (res.status === 'ok') {
+          this.selectedReport = res.data;
+          this.parseDefinition(res.data.definition);
+          this.loadVersions();
+        }
+        this.loading = false;
+      },
+      error: () => {
+        this.error = true;
+        this.loading = false;
+      },
+    });
+  }
+
   selectReport(report: ReportDefinition): void {
     this.selectedReport = report;
-    this.sections = this._parseSections(report.definition);
-    this.filters = this._parseFilters(report.definition);
-    this.charts = this._parseCharts(report.definition);
+    this.parseDefinition(report.definition);
+    this.loadVersions();
     this.activeTab = 'sections';
+  }
+
+  parseDefinition(definition: Record<string, unknown>): void {
+    const def = definition as Record<string, any>;
+    this.sections = (def['sections'] || []) as SectionNode[];
   }
 
   createReport(): void {
@@ -83,7 +233,7 @@ export class ReportBuilderComponent implements OnInit {
       description: this.newReportDescription,
       source: this.newReportSource,
       status: 'draft',
-      definition: { sections: [], filters: [], charts: [] },
+      definition: { sections: [] },
     }).subscribe({
       next: (res) => {
         if (res.status === 'ok') {
@@ -99,15 +249,14 @@ export class ReportBuilderComponent implements OnInit {
   }
 
   deleteReport(reportId: string): void {
+    if (!confirm('Delete this report?')) return;
     this.http.delete<{ status: string }>(`/reporting/builder/reports/${reportId}`).subscribe({
       next: (res) => {
         if (res.status === 'ok') {
-          this.reports = this.reports.filter((r) => r.id !== reportId);
+          this.reports = this.reports.filter(r => r.id !== reportId);
           if (this.selectedReport?.id === reportId) {
             this.selectedReport = null;
             this.sections = [];
-            this.filters = [];
-            this.charts = [];
           }
         }
       },
@@ -119,91 +268,81 @@ export class ReportBuilderComponent implements OnInit {
     this.http.post<{ status: string; data: ReportDefinition }>(`/reporting/builder/reports/${reportId}/favorite`, {}).subscribe({
       next: (res) => {
         if (res.status === 'ok' && res.data) {
-          const idx = this.reports.findIndex((r) => r.id === reportId);
-          if (idx !== -1) {
-            this.reports[idx] = res.data;
-          }
-          if (this.selectedReport?.id === reportId) {
-            this.selectedReport = res.data;
-          }
+          const idx = this.reports.findIndex(r => r.id === reportId);
+          if (idx !== -1) this.reports[idx] = res.data;
+          if (this.selectedReport?.id === reportId) this.selectedReport = res.data;
         }
       },
       error: () => {},
     });
   }
 
-  addSection(type: string): void {
+  // Element palette actions
+  addElement(element: AvailableElement): void {
     if (!this.selectedReport) return;
-    const section = {
+    const section: SectionNode = {
       id: `section_${Date.now()}`,
-      type,
-      label: `New ${type} section`,
+      type: element.type,
+      label: element.label,
+      config: { ...element.defaultConfig },
     };
     this.sections.push(section);
-    this._saveDefinition();
+    this.saveDefinition();
   }
 
   removeSection(sectionId: string): void {
-    this.sections = this.sections.filter((s) => s.id !== sectionId);
-    this._saveDefinition();
+    this.sections = this.sections.filter(s => s.id !== sectionId);
+    this.saveDefinition();
+  }
+
+  moveSection(index: number, direction: -1 | 1): void {
+    const newIndex = index + direction;
+    if (newIndex < 0 || newIndex >= this.sections.length) return;
+    [this.sections[index], this.sections[newIndex]] = [this.sections[newIndex], this.sections[index]];
+    this.saveDefinition();
   }
 
   updateSectionLabel(sectionId: string, label: string): void {
-    const section = this.sections.find((s) => s.id === sectionId);
+    const section = this.sections.find(s => s.id === sectionId);
     if (section) {
       section.label = label;
-      this._saveDefinition();
+      this.saveDefinition();
     }
   }
 
-  addFilter(): void {
-    this.filters.push({ field: '', operator: 'equals', value: '' });
-    this._saveDefinition();
+  updateSectionConfig(sectionId: string, key: string, value: any): void {
+    const section = this.sections.find(s => s.id === sectionId);
+    if (section) {
+      section.config[key] = value;
+      this.saveDefinition();
+    }
   }
 
-  removeFilter(index: number): void {
-    this.filters.splice(index, 1);
-    this._saveDefinition();
-  }
-
-  updateFilter(index: number, field: string, operator: string, value: string): void {
-    this.filters[index] = { field, operator, value };
-    this._saveDefinition();
-  }
-
-  addChart(): void {
-    this.charts.push({ type: 'bar', data_source: '', x_axis: '', y_axis: '' });
-    this._saveDefinition();
-  }
-
-  removeChart(index: number): void {
-    this.charts.splice(index, 1);
-    this._saveDefinition();
-  }
-
-  updateChart(index: number, key: string, value: string): void {
-    this.charts[index][key as keyof ChartConfig] = value as any;
-    this._saveDefinition();
-  }
-
-  saveReport(): void {
+  saveDefinition(): void {
     if (!this.selectedReport) return;
-    const definition = {
-      sections: this.sections,
-      filters: this.filters,
-      charts: this.charts,
-    };
+    this.saving = true;
+    const definition = { sections: this.sections };
     this.http.put<{ status: string; data: ReportDefinition }>(`/reporting/builder/reports/${this.selectedReport.id}`, {
       definition,
     }).subscribe({
       next: (res) => {
         if (res.status === 'ok' && res.data) {
-          const idx = this.reports.findIndex((r) => r.id === this.selectedReport!.id);
-          if (idx !== -1) {
-            this.reports[idx] = res.data;
-          }
+          const idx = this.reports.findIndex(r => r.id === this.selectedReport!.id);
+          if (idx !== -1) this.reports[idx] = res.data;
           this.selectedReport = res.data;
         }
+        this.saving = false;
+      },
+      error: () => { this.saving = false; },
+    });
+  }
+
+  // Version management
+  loadVersions(): void {
+    if (!this.selectedReport) return;
+    this.http.get<{ status: string; data: any[] }>(`/reporting/builder/reports/${this.selectedReport.id}/versions`).subscribe({
+      next: (res) => {
+        if (res.status === 'ok') this.versions = res.data;
       },
       error: () => {},
     });
@@ -212,55 +351,64 @@ export class ReportBuilderComponent implements OnInit {
   createVersion(): void {
     if (!this.selectedReport) return;
     this.http.post<{ status: string; data: any }>(`/reporting/builder/reports/${this.selectedReport.id}/versions`, {
-      definition: { sections: this.sections, filters: this.filters, charts: this.charts },
-      change_note: 'Manual save',
+      definition: { sections: this.sections },
+      change_note: this.changeNote || 'Manual save',
     }).subscribe({
       next: (res) => {
         if (res.status === 'ok') {
-          if (this.selectedReport) {
-            this.selectedReport = { ...this.selectedReport, version: (this.selectedReport.version || 0) + 1 };
-          }
+          this.versions.unshift(res.data);
+          this.changeNote = '';
         }
       },
       error: () => {},
     });
   }
 
-  private _parseSections(definition: Record<string, unknown>): SectionNode[] {
-    const def = definition as Record<string, any>;
-    return (def['sections'] || []) as SectionNode[];
-  }
-
-  private _parseFilters(definition: Record<string, unknown>): FilterOption[] {
-    const def = definition as Record<string, any>;
-    return (def['filters'] || []) as FilterOption[];
-  }
-
-  private _parseCharts(definition: Record<string, unknown>): ChartConfig[] {
-    const def = definition as Record<string, any>;
-    return (def['charts'] || []) as ChartConfig[];
-  }
-
-  private _saveDefinition(): void {
+  // Export
+  exportReport(): void {
     if (!this.selectedReport) return;
-    const definition = {
-      sections: this.sections,
-      filters: this.filters,
-      charts: this.charts,
-    };
-    this.http.put<{ status: string; data: ReportDefinition }>(`/reporting/builder/reports/${this.selectedReport.id}`, {
-      definition,
+    this.exportStatus = 'processing';
+    this.http.post<{ status: string; data: any }>(`/reporting/builder/reports/${this.selectedReport.id}/export`, {
+      format: this.exportFormat,
     }).subscribe({
       next: (res) => {
-        if (res.status === 'ok' && res.data) {
-          const idx = this.reports.findIndex((r) => r.id === this.selectedReport!.id);
-          if (idx !== -1) {
-            this.reports[idx] = res.data;
-          }
-          this.selectedReport = res.data;
+        if (res.status === 'ok') {
+          this.exportStatus = 'done';
+          setTimeout(() => { this.exportStatus = ''; }, 3000);
+        } else {
+          this.exportStatus = 'failed';
         }
       },
-      error: () => {},
+      error: () => { this.exportStatus = 'failed'; },
     });
+  }
+
+  getFilteredElements(type: string): AvailableElement[] {
+    return this.availableElements.filter(el => el.type === type);
+  }
+
+  // Helpers
+  getSectionIcon(type: string): string {
+    const icons: Record<string, string> = {
+      kpi: '📊',
+      chart: '📈',
+      table: '📋',
+      text: '📝',
+    };
+    return icons[type] || '📄';
+  }
+
+  getStatusClass(status: string): string {
+    const map: Record<string, string> = {
+      draft: 'status-draft',
+      published: 'status-published',
+      archived: 'status-archived',
+    };
+    return map[status] || 'status-draft';
+  }
+
+  formatDate(dateStr: string): string {
+    if (!dateStr) return '';
+    return new Date(dateStr).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
   }
 }

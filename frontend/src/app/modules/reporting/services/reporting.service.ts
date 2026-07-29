@@ -1,6 +1,7 @@
 import { Injectable } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
+import { ReportDefinition, ReportVersion, ReportTemplate, ExportJob, AnalyticsKpis, ChartDataResponse } from '../models/reporting.models';
 
 export interface DashboardSummary {
   total_reports: number;
@@ -17,19 +18,10 @@ export interface ReportSummary {
   name: string;
   description: string;
   status: string;
-  source: string;
+  report_type: string;
   created_at: string;
   updated_at: string;
-}
-
-export interface KpiData {
-  revenue: { total_revenue: number; outstanding_revenue: number; invoice_count: number; paid_invoice_count: number };
-  expenses: { total_expenses: number; expense_count: number };
-  profit: { net_profit: number; profit_margin: number; total_revenue: number; total_expenses: number };
-  cash_flow: { total_inflows: number; total_outflows: number; net_cash_flow: number };
-  outstanding_invoices: { outstanding_count: number; total_outstanding: number; average_outstanding: number };
-  payment_delays: { delayed_count: number; total_delayed_amount: number };
-  reconciliation_rate: { reconciliation_rate: number; total_invoices: number; reconciled_count: number; unreconciled_count: number };
+  is_favorite: boolean;
 }
 
 export interface TrendPoint {
@@ -48,64 +40,104 @@ export interface PivotRow {
   providedIn: 'root',
 })
 export class ReportingService {
+  private apiUrl = '/api/reporting';
+
   constructor(private http: HttpClient) {}
 
+  // Dashboard
   getDashboard(): Observable<{ status: string; data: DashboardSummary }> {
-    return this.http.get<{ status: string; data: DashboardSummary }>('/reporting/dashboard');
+    return this.http.get<{ status: string; data: DashboardSummary }>(`${this.apiUrl}/dashboard`);
   }
 
-  getKpis(): Observable<{ status: string; data: KpiData }> {
-    return this.http.get<{ status: string; data: KpiData }>('/reporting/analytics/kpis');
+  // Analytics KPIs with optional date filtering
+  getKpis(dateFrom?: string, dateTo?: string): Observable<{ status: string; data: AnalyticsKpis }> {
+    let params = new HttpParams();
+    if (dateFrom) params = params.set('date_from', dateFrom);
+    if (dateTo) params = params.set('date_to', dateTo);
+    return this.http.get<{ status: string; data: AnalyticsKpis }>(`${this.apiUrl}/analytics/kpis`, { params });
   }
 
+  // Chart data endpoint
+  getChartData(
+    chartType: string,
+    dateFrom?: string,
+    dateTo?: string
+  ): Observable<{ status: string; data: ChartDataResponse }> {
+    let params = new HttpParams().set('chart_type', chartType);
+    if (dateFrom) params = params.set('date_from', dateFrom);
+    if (dateTo) params = params.set('date_to', dateTo);
+    return this.http.get<{ status: string; data: ChartDataResponse }>(`${this.apiUrl}/analytics/chart-data`, { params });
+  }
+
+  // Trends
   getTrends(metric: string = 'amount', bucket: string = 'month'): Observable<{ status: string; data: { series: TrendPoint[] } }> {
-    return this.http.get<{ status: string; data: { series: TrendPoint[] } }>(`/reporting/analytics/trends?metric=${metric}&bucket=${bucket}`);
+    return this.http.get<{ status: string; data: { series: TrendPoint[] } }>(`${this.apiUrl}/analytics/trends?metric=${metric}&bucket=${bucket}`);
   }
 
+  // Heatmap
   getHeatmap(): Observable<{ status: string; data: any }> {
-    return this.http.get<{ status: string; data: any }>('/reporting/analytics/heatmap');
+    return this.http.get<{ status: string; data: any }>(`${this.apiUrl}/analytics/heatmap`);
   }
 
-  getPivot(rowField: string, columnField: string, valueField: string, aggFunc: string = 'sum'): Observable<{ status: string; data: { rows: PivotRow[] } }> {
-    return this.http.get<{ status: string; data: { rows: PivotRow[] } }>(`/reporting/analytics/pivot?row_field=${rowField}&column_field=${columnField}&value_field=${valueField}&agg_func=${aggFunc}`);
+  // Pivot
+  getPivot(rowField: string, columnField: string, valueField: string, aggFunc: string = 'sum'): Observable<{ status: string; data: any }> {
+    return this.http.get<{ status: string; data: any }>(`${this.apiUrl}/analytics/pivot?row_field=${rowField}&column_field=${columnField}&value_field=${valueField}&agg_func=${aggFunc}`);
   }
 
+  // Report Builder CRUD
   getBuilderReports(limit: number = 20, offset: number = 0): Observable<{ status: string; data: ReportDefinition[] }> {
-    return this.http.get<{ status: string; data: ReportDefinition[] }>(`/reporting/builder/reports?limit=${limit}&offset=${offset}`);
+    return this.http.get<{ status: string; data: ReportDefinition[] }>(`${this.apiUrl}/builder/reports?limit=${limit}&offset=${offset}`);
   }
 
   getBuilderReport(reportId: string): Observable<{ status: string; data: ReportDefinition }> {
-    return this.http.get<{ status: string; data: ReportDefinition }>(`/reporting/builder/reports/${reportId}`);
+    return this.http.get<{ status: string; data: ReportDefinition }>(`${this.apiUrl}/builder/reports/${reportId}`);
   }
 
   createBuilderReport(name: string, description: string, source: string): Observable<{ status: string; data: ReportDefinition }> {
-    return this.http.post<{ status: string; data: ReportDefinition }>('/reporting/builder/reports', {
+    return this.http.post<{ status: string; data: ReportDefinition }>(`${this.apiUrl}/builder/reports`, {
       name, description, source, status: 'draft',
-      definition: { sections: [], filters: [], charts: [] },
+      definition: { sections: [] },
     });
   }
 
   updateBuilderReport(reportId: string, definition: any): Observable<{ status: string; data: ReportDefinition }> {
-    return this.http.put<{ status: string; data: ReportDefinition }>(`/reporting/builder/reports/${reportId}`, { definition });
+    return this.http.put<{ status: string; data: ReportDefinition }>(`${this.apiUrl}/builder/reports/${reportId}`, { definition });
   }
 
   deleteBuilderReport(reportId: string): Observable<{ status: string }> {
-    return this.http.delete<{ status: string }>(`/reporting/builder/reports/${reportId}`);
+    return this.http.delete<{ status: string }>(`${this.apiUrl}/builder/reports/${reportId}`);
   }
 
   toggleBuilderFavorite(reportId: string): Observable<{ status: string; data: ReportDefinition }> {
-    return this.http.post<{ status: string; data: ReportDefinition }>(`/reporting/builder/reports/${reportId}/favorite`, {});
+    return this.http.post<{ status: string; data: ReportDefinition }>(`${this.apiUrl}/builder/reports/${reportId}/favorite`, {});
   }
 
+  // Versions
   createVersion(reportId: string, definition: any, changeNote: string): Observable<{ status: string; data: any }> {
-    return this.http.post<{ status: string; data: any }>(`/reporting/builder/reports/${reportId}/versions`, {
+    return this.http.post<{ status: string; data: any }>(`${this.apiUrl}/builder/reports/${reportId}/versions`, {
       definition, change_note: changeNote,
     });
   }
 
   listVersions(reportId: string): Observable<{ status: string; data: any[] }> {
-    return this.http.get<{ status: string; data: any[] }>(`/reporting/builder/reports/${reportId}/versions`);
+    return this.http.get<{ status: string; data: any[] }>(`${this.apiUrl}/builder/reports/${reportId}/versions`);
   }
 
-  // TODO: Add templates, preview, history, scheduled endpoints
+  // Templates
+  getTemplates(): Observable<{ status: string; data: ReportTemplate[] }> {
+    return this.http.get<{ status: string; data: ReportTemplate[] }>(`${this.apiUrl}/builder/templates`);
+  }
+
+  getTemplate(templateId: string): Observable<{ status: string; data: ReportTemplate }> {
+    return this.http.get<{ status: string; data: ReportTemplate }>(`${this.apiUrl}/builder/templates/${templateId}`);
+  }
+
+  // Exports
+  createExport(reportId: string, format: string): Observable<{ status: string; data: ExportJob }> {
+    return this.http.post<{ status: string; data: ExportJob }>(`${this.apiUrl}/builder/reports/${reportId}/export`, { format });
+  }
+
+  listExports(reportId: string): Observable<{ status: string; data: ExportJob[] }> {
+    return this.http.get<{ status: string; data: ExportJob[] }>(`${this.apiUrl}/builder/reports/${reportId}/exports`);
+  }
 }
