@@ -1,0 +1,270 @@
+.create-workspace {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 24px 32px;
+  min-height: calc(100vh - 120px);
+  display: flex;
+  flex-direction: column;
+}
+
+/* Header */
+.create-header {
+  margin-bottom: 40px;
+}
+
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #6B7280;
+  text-decoration: none;
+  transition: color 0.2s ease;
+  margin-bottom: 20px;
+}
+
+.back-link:hover {
+  color: #2F5FE0;
+}
+
+.back-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.header-content {
+  text-align: center;
+}
+
+.header-title {
+  font-size: 28px;
+  font-weight: 700;
+  color: #0F172A;
+  margin: 0 0 8px 0;
+  letter-spacing: -0.03em;
+}
+
+.header-subtitle {
+  font-size: 15px;
+  color: #6B7280;
+  margin: 0;
+  max-width: 500px;
+  margin: 0 auto;
+}
+
+/* Options Grid */
+.options-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  flex: 1;
+}
+
+.option-card {
+  position: relative;
+  border-radius: 16px;
+  background: #FFFFFF;
+  border: 1px solid #E7E9EE;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+  display: flex;
+}
+
+.option-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: var(--card-accent);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.option-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.08);
+  border-color: var(--card-border);
+}
+
+.option-card:hover::before {
+  opacity: 1;
+}
+
+.option-card-inner {
+  display: flex;
+  flex-direction: column;
+  padding: 32px;
+  width: 100%;
+}
+
+/* Card Header */
+.card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.card-icon-wrapper {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  transition: transform 0.3s ease;
+}
+
+.option-card:hover .card-icon-wrapper {
+  transform: scale(1.05);
+}
+
+.card-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: #FFFFFF;
+  padding: 3px 10px;
+  border-radius: 20px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+/* Card Body */
+.card-body {
+  flex: 1;
+}
+
+.card-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: #0F172A;
+  margin: 0 0 10px 0;
+  letter-spacing: -0.02em;
+}
+
+.card-description {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #6B7280;
+  margin: 0 0 20px 0;
+}
+
+.features-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.feature-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #374151;
+  font-weight: 500;
+}
+
+.feature-check {
+  width: 16px;
+  height: 16px;
+  color: var(--card-accent);
+  flex-shrink: 0;
+}
+
+/* Card Footer */
+.card-footer {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid #F3F4F6;
+}
+
+.btn-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px;
+  color: #FFFFFF;
+  border: none;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.2s ease;
+  width: 100%;
+  justify-content: center;
+}
+
+.btn-select:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  opacity: 0.95;
+}
+
+.btn-arrow {
+  width: 16px;
+  height: 16px;
+  transition: transform 0.2s ease;
+}
+
+.btn-select:hover .btn-arrow {
+  transform: translateX(4px);
+}
+
+/* Bottom Info */
+.bottom-info {
+  margin-top: 32px;
+}
+
+.info-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px 20px;
+  background: #FFFBEB;
+  border: 1px solid #FDE68A;
+  border-radius: 12px;
+}
+
+.info-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.info-text {
+  font-size: 13px;
+  color: #92400E;
+  line-height: 1.5;
+}
+
+.info-text strong {
+  font-weight: 600;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .create-workspace {
+    padding: 16px;
+  }
+
+  .options-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .header-title {
+    font-size: 22px;
+  }
+
+  .option-card-inner {
+    padding: 24px;
+  }
+}

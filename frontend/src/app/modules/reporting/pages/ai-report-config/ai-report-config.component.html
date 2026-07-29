@@ -1,0 +1,279 @@
+<div class="ai-report-config">
+  <!-- Header -->
+  <header class="config-header">
+    <button class="back-btn" (click)="goBack()">
+      <svg class="back-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M19 12H5M12 19l-7-7 7-7"/>
+      </svg>
+      <span *ngIf="step === 'config'">Back to Creation Options</span>
+      <span *ngIf="step === 'preview'">Back to Configuration</span>
+    </button>
+    <div class="header-content">
+      <h1 class="header-title">AI Report Generation</h1>
+      <p class="header-subtitle">Describe the report you need, and our AI will build it for you.</p>
+    </div>
+  </header>
+
+  <!-- Progress Steps -->
+  <div class="progress-steps">
+    <div class="progress-step" [class.active]="step === 'config'" [class.completed]="step === 'preview' || step === 'done'">
+      <div class="step-number">{{ step === 'preview' || step === 'done' ? '✓' : '1' }}</div>
+      <span class="step-label">Configure</span>
+    </div>
+    <div class="progress-line" [class.active]="step === 'preview' || step === 'done'"></div>
+    <div class="progress-step" [class.active]="step === 'preview'" [class.completed]="step === 'done'">
+      <div class="step-number">{{ step === 'done' ? '✓' : '2' }}</div>
+      <span class="step-label">Preview</span>
+    </div>
+    <div class="progress-line" [class.active]="step === 'done'"></div>
+    <div class="progress-step" [class.active]="step === 'done'">
+      <div class="step-number">3</div>
+      <span class="step-label">Complete</span>
+    </div>
+  </div>
+
+  <!-- Error Message -->
+  <div class="error-message" *ngIf="error">
+    <svg class="error-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <circle cx="12" cy="12" r="10"/>
+      <line x1="15" y1="9" x2="9" y2="15"/>
+      <line x1="9" y1="9" x2="15" y2="15"/>
+    </svg>
+    <span>{{ error }}</span>
+  </div>
+
+  <!-- Step 1: Configuration Form -->
+  <div class="config-form" *ngIf="step === 'config'">
+    <div class="form-layout">
+      <!-- Left Column: Main Fields -->
+      <div class="form-main">
+        <div class="form-section">
+          <h2 class="form-section-title">Report Details</h2>
+
+          <div class="form-group">
+            <label class="form-label">Report Title <span class="required">*</span></label>
+            <input
+              type="text"
+              [(ngModel)]="title"
+              placeholder="e.g., Monthly Financial Performance Report"
+              class="form-input"
+            />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Report Objective / Business Question <span class="required">*</span></label>
+            <textarea
+              [(ngModel)]="objective"
+              [placeholder]="examplePrompt"
+              class="form-textarea"
+              rows="6"
+            ></textarea>
+            <span class="form-hint">Describe what you want the report to show. Be specific about metrics, comparisons, and insights you need.</span>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <h2 class="form-section-title">Configuration</h2>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Report Audience</label>
+              <select [(ngModel)]="audience" class="form-select">
+                <option *ngFor="let opt of audienceOptions" [value]="opt">{{ opt }}</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Preferred Language</label>
+              <select [(ngModel)]="language" class="form-select">
+                <option *ngFor="let opt of languageOptions" [value]="opt">{{ opt }}</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Period Start</label>
+              <input type="date" [(ngModel)]="periodStart" class="form-input" />
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Period End</label>
+              <input type="date" [(ngModel)]="periodEnd" class="form-input" />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Additional Instructions</label>
+            <textarea
+              [(ngModel)]="additionalInstructions"
+              placeholder="Any specific requirements, formatting preferences, or data filters..."
+              class="form-textarea"
+              rows="3"
+            ></textarea>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Column: Tips -->
+      <div class="form-sidebar">
+        <div class="tips-card">
+          <div class="tips-header">
+            <span class="tips-icon">💡</span>
+            <h3>Tips for best results</h3>
+          </div>
+          <ul class="tips-list">
+            <li>Be specific about the time period you want to analyze</li>
+            <li>Mention specific KPIs or metrics you care about</li>
+            <li>Specify the level of detail needed (summary vs. deep dive)</li>
+            <li>Include any comparisons or benchmarks if relevant</li>
+            <li>Mention your audience to get the right tone and detail level</li>
+          </ul>
+        </div>
+
+        <div class="tips-card">
+          <div class="tips-header">
+            <span class="tips-icon">🔍</span>
+            <h3>Available data sources</h3>
+          </div>
+          <ul class="tips-list">
+            <li>Revenue and expense transactions</li>
+            <li>Invoice and payment records</li>
+            <li>Reconciliation matching data</li>
+            <li>Anomaly detection results</li>
+            <li>Cash flow statements</li>
+            <li>Profit margin calculations</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Form Actions -->
+    <div class="form-actions">
+      <button class="btn-cancel" (click)="goBack()">Cancel</button>
+      <button
+        class="btn-generate"
+        (click)="generateStructure()"
+        [disabled]="!title.trim() || !objective.trim()"
+      >
+        <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 3v12M9 12l3 3 3-3"/>
+          <path d="M5 16v2a2 2 0 002 2h10a2 2 0 002-2v-2"/>
+        </svg>
+        Generate Report Structure
+      </button>
+    </div>
+  </div>
+
+  <!-- Generating State -->
+  <div class="generating-state" *ngIf="step === 'generating'">
+    <div class="generating-animation">
+      <div class="generating-spinner"></div>
+      <div class="generating-pulse">
+        <div class="pulse-ring"></div>
+        <div class="pulse-ring"></div>
+        <div class="pulse-ring"></div>
+      </div>
+    </div>
+    <h2 class="generating-title">Analyzing Your Request</h2>
+    <p class="generating-subtitle">Our AI is analyzing your requirements and building the optimal report structure...</p>
+    <div class="generating-steps">
+      <div class="gen-step">
+        <div class="gen-step-dot active"></div>
+        <span>Understanding report objective</span>
+      </div>
+      <div class="gen-step">
+        <div class="gen-step-dot"></div>
+        <span>Selecting relevant KPIs and metrics</span>
+      </div>
+      <div class="gen-step">
+        <div class="gen-step-dot"></div>
+        <span>Building report structure</span>
+      </div>
+      <div class="gen-step">
+        <div class="gen-step-dot"></div>
+        <span>Generating insights template</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 2: Preview -->
+  <div class="preview-section" *ngIf="step === 'preview' && preview">
+    <div class="preview-header">
+      <div class="preview-header-left">
+        <h2 class="preview-title">Generated Report Structure</h2>
+        <p class="preview-subtitle">Review the AI-generated report structure below. You can generate the final report or go back to adjust your configuration.</p>
+      </div>
+    </div>
+
+    <!-- Structure Tree -->
+    <div class="structure-tree">
+      <div class="tree-root">
+        <div class="tree-node root-node">
+          <div class="node-icon">{{ getStructureIcon({ id: 'root', label: preview.title }) }}</div>
+          <span class="node-label">{{ preview.title }}</span>
+        </div>
+
+        <div class="tree-children">
+          <div *ngFor="let node of preview.structure" class="tree-node child-node">
+            <div class="node-line"></div>
+            <div class="node-content">
+              <div class="node-icon">{{ getStructureIcon(node) }}</div>
+              <span class="node-label">{{ node.label }}</span>
+            </div>
+            <div *ngIf="node.children && node.children.length > 0" class="tree-grandchildren">
+              <div *ngFor="let child of node.children" class="tree-node grandchild-node">
+                <div class="node-line"></div>
+                <div class="node-content">
+                  <div class="node-icon sub-icon">▸</div>
+                  <span class="node-label sub-label">{{ child.label }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Preview Actions -->
+    <div class="preview-actions">
+      <button class="btn-cancel" (click)="goBack()">Back to Configuration</button>
+      <button class="btn-outline" (click)="resetForm()">Reset</button>
+      <button class="btn-generate" (click)="generateReport()" [disabled]="loading">
+        <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polygon points="5 3 19 12 5 21 5 3"/>
+        </svg>
+        {{ loading ? 'Generating...' : 'Generate Report' }}
+      </button>
+    </div>
+  </div>
+
+  <!-- Step 3: Done -->
+  <div class="done-section" *ngIf="step === 'done'">
+    <div class="done-content">
+      <div class="done-icon">✅</div>
+      <h2 class="done-title">Report Generated Successfully!</h2>
+      <p class="done-subtitle">Your AI-generated report "{{ title }}" has been created and is ready to view.</p>
+
+      <div class="done-actions">
+        <button class="btn-primary" (click)="openReport()">
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
+          Open Report
+        </button>
+        <button class="btn-outline" (click)="saveAsTemplate()">
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="16" y1="13" x2="8" y2="13"/>
+            <line x1="16" y1="17" x2="8" y2="17"/>
+          </svg>
+          Save as Template
+        </button>
+        <button class="btn-cancel" (click)="resetForm()">Create Another Report</button>
+      </div>
+    </div>
+  </div>
+</div>

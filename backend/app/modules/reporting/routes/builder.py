@@ -10,6 +10,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+# --- Existing CRUD Endpoints ---
+
 @router.get("/reports")
 def list_reports(
     status: Optional[str] = Query(default=None),
@@ -69,6 +71,73 @@ def toggle_favorite(report_id: str):
         return {"status": "error", "message": "Report not found"}
     return {"status": "ok", "data": report}
 
+
+# --- New: AI Report Generation Endpoints ---
+
+@router.post("/ai/generate-structure")
+async def ai_generate_structure(request: Request):
+    """Generate a report structure based on user prompt (AI)."""
+    body = await request.json()
+    result = ReportService.generate_ai_report_structure(body)
+    if not result:
+        return {"status": "error", "message": "Failed to generate report structure"}
+    return {"status": "ok", "data": result}
+
+
+@router.post("/ai/create-report")
+async def ai_create_report(request: Request):
+    """Create a report using AI generation."""
+    body = await request.json()
+    report = ReportService.create_ai_report(body)
+    if not report:
+        return {"status": "error", "message": "Failed to create AI report"}
+    return {"status": "ok", "data": report}
+
+
+# --- New: Manual Builder Endpoints ---
+
+@router.post("/manual/create-report")
+async def manual_create_report(request: Request):
+    """Create a report using the manual builder."""
+    body = await request.json()
+    report = ReportService.create_manual_report(body)
+    if not report:
+        return {"status": "error", "message": "Failed to create manual report"}
+    return {"status": "ok", "data": report}
+
+
+@router.put("/reports/{report_id}/sections")
+async def update_report_sections(report_id: str, request: Request):
+    """Update the sections of a report."""
+    body = await request.json()
+    sections = body.get("sections", [])
+    report = ReportService.update_sections(report_id, sections)
+    if not report:
+        return {"status": "error", "message": "Failed to update sections"}
+    return {"status": "ok", "data": report}
+
+
+@router.post("/reports/{report_id}/publish")
+def publish_report(report_id: str):
+    """Publish a report (change status to PUBLISHED)."""
+    report = ReportService.publish_report(report_id)
+    if not report:
+        return {"status": "error", "message": "Failed to publish report"}
+    return {"status": "ok", "data": report}
+
+
+@router.post("/reports/{report_id}/save-template")
+async def save_report_as_template(report_id: str, request: Request):
+    """Save a report as a template."""
+    body = await request.json()
+    category = body.get("category", "custom")
+    template = ReportService.save_as_template(report_id, category)
+    if not template:
+        return {"status": "error", "message": "Failed to save template"}
+    return {"status": "ok", "data": template}
+
+
+# --- Version Endpoints ---
 
 @router.post("/reports/{report_id}/versions")
 async def create_version(report_id: str, request: Request):

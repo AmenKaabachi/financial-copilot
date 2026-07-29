@@ -61,6 +61,7 @@ export class ReportingDashboardComponent implements OnInit {
   newReportName = '';
   newReportDescription = '';
   newReportSource: string = 'manual';
+  showCreateDropdown = false;
 
   constructor(private http: HttpClient) {}
 

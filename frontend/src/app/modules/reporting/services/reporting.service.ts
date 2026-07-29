@@ -1,7 +1,11 @@
 import { Injectable } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
-import { ReportDefinition, ReportVersion, ReportTemplate, ExportJob, AnalyticsKpis, ChartDataResponse } from '../models/reporting.models';
+import {
+  ReportDefinition, ReportVersion, ReportTemplate, ExportJob,
+  AnalyticsKpis, ChartDataResponse, AiReportRequest, AiReportPreview,
+  ReportSection
+} from '../models/reporting.models';
 
 export interface DashboardSummary {
   total_reports: number;
@@ -95,7 +99,7 @@ export class ReportingService {
 
   createBuilderReport(name: string, description: string, source: string): Observable<{ status: string; data: ReportDefinition }> {
     return this.http.post<{ status: string; data: ReportDefinition }>(`${this.apiUrl}/builder/reports`, {
-      name, description, source, status: 'draft',
+      name, description, source, status: 'DRAFT',
       definition: { sections: [] },
     });
   }
@@ -110,6 +114,32 @@ export class ReportingService {
 
   toggleBuilderFavorite(reportId: string): Observable<{ status: string; data: ReportDefinition }> {
     return this.http.post<{ status: string; data: ReportDefinition }>(`${this.apiUrl}/builder/reports/${reportId}/favorite`, {});
+  }
+
+  // AI Report Generation
+  generateAiStructure(request: AiReportRequest): Observable<{ status: string; data: AiReportPreview }> {
+    return this.http.post<{ status: string; data: AiReportPreview }>(`${this.apiUrl}/builder/ai/generate-structure`, request);
+  }
+
+  createAiReport(data: any): Observable<{ status: string; data: ReportDefinition }> {
+    return this.http.post<{ status: string; data: ReportDefinition }>(`${this.apiUrl}/builder/ai/create-report`, data);
+  }
+
+  // Manual Builder
+  createManualReport(data: any): Observable<{ status: string; data: ReportDefinition }> {
+    return this.http.post<{ status: string; data: ReportDefinition }>(`${this.apiUrl}/builder/manual/create-report`, data);
+  }
+
+  updateReportSections(reportId: string, sections: ReportSection[]): Observable<{ status: string; data: ReportDefinition }> {
+    return this.http.put<{ status: string; data: ReportDefinition }>(`${this.apiUrl}/builder/reports/${reportId}/sections`, { sections });
+  }
+
+  publishReport(reportId: string): Observable<{ status: string; data: ReportDefinition }> {
+    return this.http.post<{ status: string; data: ReportDefinition }>(`${this.apiUrl}/builder/reports/${reportId}/publish`, {});
+  }
+
+  saveAsTemplate(reportId: string, category: string = 'custom'): Observable<{ status: string; data: ReportTemplate }> {
+    return this.http.post<{ status: string; data: ReportTemplate }>(`${this.apiUrl}/builder/reports/${reportId}/save-template`, { category });
   }
 
   // Versions

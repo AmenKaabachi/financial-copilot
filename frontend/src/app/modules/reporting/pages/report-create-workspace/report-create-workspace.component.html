@@ -1,0 +1,72 @@
+<div class="create-workspace">
+  <!-- Header -->
+  <header class="create-header">
+    <a [routerLink]="['/reporting/reports']" class="back-link">
+      <svg class="back-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M19 12H5M12 19l-7-7 7-7"/>
+      </svg>
+      Back to Reports
+    </a>
+    <div class="header-content">
+      <h1 class="header-title">Create New Report</h1>
+      <p class="header-subtitle">Choose how you want to build your report. Two powerful ways to get started.</p>
+    </div>
+  </header>
+
+  <!-- Creation Options -->
+  <div class="options-grid">
+    <div
+      *ngFor="let option of creationOptions"
+      class="option-card"
+      [style.--card-accent]="option.color"
+      [style.--card-bg]="option.bgColor"
+      [style.--card-border]="option.borderColor"
+    >
+      <div class="option-card-inner">
+        <!-- Card Header -->
+        <div class="card-header">
+          <div class="card-icon-wrapper" [style.background]="option.bgColor" [style.color]="option.color">
+            <span class="card-icon">{{ option.icon }}</span>
+          </div>
+          <span class="card-badge" [style.background]="option.color">Recommended</span>
+        </div>
+
+        <!-- Card Body -->
+        <div class="card-body">
+          <h2 class="card-title">{{ option.title }}</h2>
+          <p class="card-description">{{ option.description }}</p>
+
+          <!-- Features List -->
+          <ul class="features-list">
+            <li *ngFor="let feature of option.features" class="feature-item">
+              <svg class="feature-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <polyline points="20 6 9 17 4 12"/>
+              </svg>
+              <span>{{ feature }}</span>
+            </li>
+          </ul>
+        </div>
+
+        <!-- Card Footer -->
+        <div class="card-footer">
+          <a [routerLink]="option.route" class="btn-select" [style.background]="option.color">
+            <span>Get Started</span>
+            <svg class="btn-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M5 12h14M12 5l7 7-7 7"/>
+            </svg>
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom Info -->
+  <div class="bottom-info">
+    <div class="info-card">
+      <div class="info-icon">💡</div>
+      <div class="info-text">
+        <strong>Pro Tip:</strong> Use AI Generation for quick, data-driven reports. Use Manual Builder when you need complete control over every element.
+      </div>
+    </div>
+  </div>
+</div>

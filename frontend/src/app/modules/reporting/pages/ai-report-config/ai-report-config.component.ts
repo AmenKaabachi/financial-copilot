@@ -1,0 +1,194 @@
+import { Component, OnInit } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
+import { RouterModule, Router } from '@angular/router';
+import { ReportingService } from '../../services/reporting.service';
+import { AiReportRequest, AiReportPreview, ReportStructureNode } from '../../models/reporting.models';
+
+@Component({
+  selector: 'app-ai-report-config',
+  standalone: true,
+  imports: [CommonModule, FormsModule, RouterModule],
+  templateUrl: './ai-report-config.component.html',
+  styleUrl: './ai-report-config.component.css',
+})
+export class AiReportConfigComponent implements OnInit {
+  // Form fields
+  title = '';
+  objective = '';
+  audience = 'Finance Team';
+  periodStart = '';
+  periodEnd = '';
+  language = 'English';
+  additionalInstructions = '';
+
+  // UI State
+  step: 'config' | 'preview' | 'generating' | 'done' = 'config';
+  loading = false;
+  error = '';
+
+  // Preview data
+  preview: AiReportPreview | null = null;
+  generatedReportId: string | null = null;
+
+  audienceOptions = [
+    'Finance Team',
+    'CFO',
+    'Accountant',
+    'Management',
+    'Board of Directors',
+    'Investors',
+    'Auditors',
+    'Department Heads',
+  ];
+
+  languageOptions = ['English', 'French', 'Arabic', 'Spanish', 'German'];
+
+  examplePrompt = `Create a monthly financial performance report analyzing revenue trends, expenses, profit margins, cash flow situation, outstanding invoices, reconciliation accuracy, and important anomalies. Highlight risks and provide management recommendations.`;
+
+  constructor(
+    private reportingService: ReportingService,
+    private router: Router
+  ) {}
+
+  ngOnInit(): void {
+    // Set default period to current month
+    const now = new Date();
+    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    this.periodStart = this.formatDate(firstDay);
+    this.periodEnd = this.formatDate(lastDay);
+  }
+
+  private formatDate(date: Date): string {
+    return date.toISOString().split('T')[0];
+  }
+
+  generateStructure(): void {
+    if (!this.title.trim() || !this.objective.trim()) {
+      this.error = 'Please provide a report title and objective.';
+      return;
+    }
+
+    this.error = '';
+    this.loading = true;
+    this.step = 'generating';
+
+    const request: AiReportRequest = {
+      title: this.title,
+      objective: this.objective,
+      audience: this.audience,
+      period_start: this.periodStart || undefined,
+      period_end: this.periodEnd || undefined,
+      language: this.language,
+      additional_instructions: this.additionalInstructions || undefined,
+    };
+
+    this.reportingService.generateAiStructure(request).subscribe({
+      next: (res) => {
+        if (res.status === 'ok') {
+          this.preview = res.data;
+          this.step = 'preview';
+        } else {
+          this.error = 'Failed to generate report structure.';
+          this.step = 'config';
+        }
+        this.loading = false;
+      },
+      error: () => {
+        this.error = 'An error occurred while generating the report structure.';
+        this.loading = false;
+        this.step = 'config';
+      },
+    });
+  }
+
+  generateReport(): void {
+    if (!this.preview) return;
+
+    this.loading = true;
+    this.error = '';
+
+    const data = {
+      name: this.title,
+      description: this.objective,
+      prompt_used: JSON.stringify({
+        title: this.title,
+        objective: this.objective,
+        audience: this.audience,
+        period_start: this.periodStart,
+        period_end: this.periodEnd,
+        language: this.language,
+        additional_instructions: this.additionalInstructions,
+      }),
+      report_structure: this.preview.structure,
+      sections: this.preview.sections,
+    };
+
+    this.reportingService.createAiReport(data).subscribe({
+      next: (res) => {
+        if (res.status === 'ok' && res.data) {
+          this.generatedReportId = res.data.id;
+          this.step = 'done';
+        } else {
+          this.error = 'Failed to create report.';
+        }
+        this.loading = false;
+      },
+      error: () => {
+        this.error = 'An error occurred while creating the report.';
+        this.loading = false;
+      },
+    });
+  }
+
+  saveAsTemplate(): void {
+    if (!this.generatedReportId) return;
+    this.reportingService.saveAsTemplate(this.generatedReportId, 'ai-generated').subscribe({
+      next: () => {
+        // Navigate to the report builder
+        this.router.navigate(['/reporting/builder', this.generatedReportId]);
+      },
+      error: () => {
+        this.error = 'Failed to save as template.';
+      },
+    });
+  }
+
+  openReport(): void {
+    if (this.generatedReportId) {
+      this.router.navigate(['/reporting/builder', this.generatedReportId]);
+    }
+  }
+
+  goBack(): void {
+    if (this.step === 'preview') {
+      this.step = 'config';
+    } else {
+      this.router.navigate(['/reporting/reports/create']);
+    }
+  }
+
+  resetForm(): void {
+    this.step = 'config';
+    this.preview = null;
+    this.generatedReportId = null;
+    this.error = '';
+  }
+
+  getStructureIcon(node: ReportStructureNode): string {
+    const label = node.label.toLowerCase();
+    if (label.includes('executive') || label.includes('summary')) return '📋';
+    if (label.includes('revenue')) return '💰';
+    if (label.includes('expense')) return '💸';
+    if (label.includes('profit')) return '📈';
+    if (label.includes('cash')) return '💵';
+    if (label.includes('reconciliation')) return '🔄';
+    if (label.includes('anomaly')) return '⚠️';
+    if (label.includes('recommendation')) return '💡';
+    if (label.includes('metric') || label.includes('kpi')) return '📊';
+    if (label.includes('analysis')) return '🔍';
+    if (label.includes('insight')) return '🧠';
+    return '📄';
+  }
+}

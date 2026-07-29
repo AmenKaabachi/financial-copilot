@@ -6,8 +6,12 @@ export interface ReportDefinition {
   tags: string[];
   owner_id: string;
   source: 'manual' | 'ai' | 'template';
-  status: 'draft' | 'published' | 'archived';
+  creation_method: 'AI_GENERATED' | 'MANUAL_BUILDER';
+  status: 'DRAFT' | 'GENERATED' | 'PUBLISHED';
   definition: Record<string, unknown>;
+  prompt_used?: string;
+  report_structure?: ReportStructureNode[];
+  sections: ReportSection[];
   is_favorite: boolean;
   created_at: string;
   updated_at: string;
@@ -15,9 +19,15 @@ export interface ReportDefinition {
 
 export interface ReportSection {
   id: string;
-  type: 'kpi' | 'chart' | 'table' | 'text';
-  label: string;
+  type: 'title' | 'text' | 'kpi' | 'chart' | 'table' | 'financial_summary' | 'ai_insight' | 'recommendation' | 'image' | 'divider' | 'page_break';
+  position: number;
   config: Record<string, any>;
+}
+
+export interface ReportStructureNode {
+  id: string;
+  label: string;
+  children?: ReportStructureNode[];
 }
 
 export interface ReportVersion {
@@ -83,9 +93,26 @@ export interface ChartDataset {
 }
 
 export interface AvailableElement {
-  type: 'kpi' | 'chart' | 'table' | 'text';
+  type: 'title' | 'text' | 'kpi' | 'chart' | 'table' | 'financial_summary' | 'ai_insight' | 'recommendation' | 'image' | 'divider' | 'page_break';
   label: string;
   description: string;
   icon: string;
   defaultConfig: Record<string, any>;
+}
+
+export interface AiReportRequest {
+  title: string;
+  objective: string;
+  audience: string;
+  period_start?: string;
+  period_end?: string;
+  language: string;
+  additional_instructions?: string;
+}
+
+export interface AiReportPreview {
+  title: string;
+  structure: ReportStructureNode[];
+  sections: ReportSection[];
+  template_used: string;
 }

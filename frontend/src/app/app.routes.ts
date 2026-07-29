@@ -6,6 +6,9 @@ import { ReportingShellComponent } from './modules/reporting/pages/reporting-she
 import { ReportingDashboardComponent } from './modules/reporting/pages/reporting-dashboard/reporting-dashboard.component';
 import { AnalyticsWorkspaceComponent } from './modules/reporting/pages/analytics/analytics-workspace.component';
 import { ReportBuilderComponent } from './modules/reporting/pages/report-builder/report-builder.component';
+import { ReportCreateWorkspaceComponent } from './modules/reporting/pages/report-create-workspace/report-create-workspace.component';
+import { AiReportConfigComponent } from './modules/reporting/pages/ai-report-config/ai-report-config.component';
+import { ManualReportBuilderComponent } from './modules/reporting/pages/manual-report-builder/manual-report-builder.component';
 
 export const routes: Routes = [
   {
@@ -22,6 +25,9 @@ export const routes: Routes = [
           { path: '', redirectTo: 'analytics', pathMatch: 'full' },
           { path: 'analytics', component: AnalyticsWorkspaceComponent },
           { path: 'reports', component: ReportingDashboardComponent },
+          { path: 'reports/create', component: ReportCreateWorkspaceComponent },
+          { path: 'reports/create/ai', component: AiReportConfigComponent },
+          { path: 'reports/create/manual', component: ManualReportBuilderComponent },
           { path: 'builder', component: ReportBuilderComponent },
           { path: 'builder/:id', component: ReportBuilderComponent },
         ]
