@@ -100,6 +100,26 @@ export interface AvailableElement {
   defaultConfig: Record<string, any>;
 }
 
+export interface AnalyticsComponent {
+  id: string;
+  name: string;
+  type: 'kpi' | 'chart' | 'table' | 'heatmap' | 'pivot' | 'trend';
+  analytics_source: 'kpi' | 'chart_data' | 'table_data' | 'heatmap' | 'pivot' | 'trend';
+  analytics_params: Record<string, any>;
+  description: string;
+  component_group: 'kpis' | 'charts' | 'tables' | 'analytics_widgets';
+  icon: string;
+  use_cases: string[];
+  keywords: string[];
+  config_schema: Record<string, any>;
+}
+
+export interface ComponentPreview {
+  component_id: string;
+  data: any;
+  type: string;
+}
+
 export interface AiReportRequest {
   title: string;
   objective: string;
@@ -114,5 +134,5 @@ export interface AiReportPreview {
   title: string;
   structure: ReportStructureNode[];
   sections: ReportSection[];
-  template_used: string;
+  selected_components: string[];
 }

@@ -4,145 +4,18 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from app.shared.database.supabase_client import get_supabase_client
+from app.modules.reporting.services.analytics_service import AnalyticsService
+from app.modules.reporting.analytics.component_registry import (
+    get_all_components,
+    get_component_by_id,
+    select_components_for_prompt,
+)
 
 logger = logging.getLogger(__name__)
 
 
 def _table(table: str):
     return get_supabase_client().table(table)
-
-
-# Predefined AI report structure templates
-AI_REPORT_STRUCTURES = {
-    "financial_performance": {
-        "title": "Financial Performance Report",
-        "structure": [
-            {"id": "executive_summary", "label": "Executive Summary", "children": []},
-            {"id": "revenue_analysis", "label": "Revenue Analysis", "children": []},
-            {"id": "expense_overview", "label": "Expense Overview", "children": []},
-            {"id": "profitability_analysis", "label": "Profitability Analysis", "children": []},
-            {"id": "cash_flow_analysis", "label": "Cash Flow Analysis", "children": []},
-            {"id": "reconciliation_performance", "label": "Reconciliation Performance", "children": []},
-            {"id": "anomaly_detection", "label": "Anomaly Detection Insights", "children": []},
-            {"id": "recommendations", "label": "Recommendations", "children": []},
-        ],
-        "sections": [
-            {
-                "id": "sec_exec_summary",
-                "type": "text",
-                "position": 1,
-                "config": {"content": "## Executive Summary\n\nThis report provides a comprehensive overview of the financial performance...", "ai_generated": True},
-            },
-            {
-                "id": "sec_revenue_kpi",
-                "type": "kpi",
-                "position": 2,
-                "config": {"kpis": ["revenue", "profit"], "ai_generated": True},
-            },
-            {
-                "id": "sec_revenue_chart",
-                "type": "chart",
-                "position": 3,
-                "config": {"chart_type": "line", "data_source": "reconciliation_trend", "title": "Revenue Trend", "ai_generated": True},
-            },
-            {
-                "id": "sec_expense_table",
-                "type": "table",
-                "position": 4,
-                "config": {"data_source": "erp_transactions", "columns": ["id", "supplier", "amount", "status"], "title": "Expense Analysis", "ai_generated": True},
-            },
-            {
-                "id": "sec_cash_flow",
-                "type": "kpi",
-                "position": 5,
-                "config": {"kpis": ["cash_flow", "outstanding_invoices"], "ai_generated": True},
-            },
-            {
-                "id": "sec_reconciliation",
-                "type": "kpi",
-                "position": 6,
-                "config": {"kpis": ["reconciliation_rate", "matching_accuracy"], "ai_generated": True},
-            },
-            {
-                "id": "sec_anomaly",
-                "type": "kpi",
-                "position": 7,
-                "config": {"kpis": ["anomaly_stats"], "ai_generated": True},
-            },
-            {
-                "id": "sec_recommendations",
-                "type": "text",
-                "position": 8,
-                "config": {"content": "## Recommendations\n\n1. **Revenue Growth**: Focus on reducing outstanding invoices...\n2. **Cost Optimization**: Review expense categories...\n3. **Process Improvement**: Enhance reconciliation workflows...", "ai_generated": True},
-            },
-        ],
-    },
-    "reconciliation_report": {
-        "title": "Reconciliation Performance Report",
-        "structure": [
-            {"id": "overview", "label": "Overview", "children": []},
-            {"id": "matching_analysis", "label": "Matching Analysis", "children": []},
-            {"id": "exception_reporting", "label": "Exception Reporting", "children": []},
-            {"id": "trend_analysis", "label": "Trend Analysis", "children": []},
-            {"id": "recommendations", "label": "Recommendations", "children": []},
-        ],
-        "sections": [
-            {
-                "id": "sec_rec_overview",
-                "type": "kpi",
-                "position": 1,
-                "config": {"kpis": ["reconciliation_rate", "matching_accuracy", "total_transactions"], "ai_generated": True},
-            },
-            {
-                "id": "sec_rec_chart",
-                "type": "chart",
-                "position": 2,
-                "config": {"chart_type": "line", "data_source": "reconciliation_trend", "title": "Reconciliation Trend", "ai_generated": True},
-            },
-            {
-                "id": "sec_rec_table",
-                "type": "table",
-                "position": 3,
-                "config": {"data_source": "reconciliations", "columns": ["id", "status", "amount"], "title": "Reconciliation Records", "ai_generated": True},
-            },
-            {
-                "id": "sec_rec_anomaly",
-                "type": "kpi",
-                "position": 4,
-                "config": {"kpis": ["anomaly_stats"], "ai_generated": True},
-            },
-        ],
-    },
-    "custom": {
-        "title": "Custom Report",
-        "structure": [
-            {"id": "summary", "label": "Summary", "children": []},
-            {"id": "key_metrics", "label": "Key Metrics", "children": []},
-            {"id": "detailed_analysis", "label": "Detailed Analysis", "children": []},
-            {"id": "insights", "label": "Insights & Recommendations", "children": []},
-        ],
-        "sections": [
-            {
-                "id": "sec_custom_kpi",
-                "type": "kpi",
-                "position": 1,
-                "config": {"kpis": ["revenue", "profit", "reconciliation_rate"], "ai_generated": True},
-            },
-            {
-                "id": "sec_custom_chart",
-                "type": "chart",
-                "position": 2,
-                "config": {"chart_type": "bar", "data_source": "transaction_volume", "title": "Transaction Volume", "ai_generated": True},
-            },
-            {
-                "id": "sec_custom_table",
-                "type": "table",
-                "position": 3,
-                "config": {"data_source": "erp_transactions", "columns": ["id", "supplier", "amount", "status"], "title": "Transaction Details", "ai_generated": True},
-            },
-        ],
-    },
-}
 
 
 class ReportService:
@@ -324,27 +197,126 @@ class ReportService:
     def generate_ai_report_structure(request: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
         Analyze the user's prompt and generate an appropriate report structure.
-        This uses predefined templates based on keywords in the request.
-        In production, this would call an LLM service.
+        Uses the component registry to select relevant analytics components
+        based on intent-based matching of the user's prompt.
         """
         try:
             objective = (request.get("objective", "") or "").lower()
             title = request.get("title", "Financial Report")
 
-            # Determine which template to use based on keywords
-            template_key = "custom"
-            if any(kw in objective for kw in ["financial performance", "revenue", "profit", "financial"]):
-                template_key = "financial_performance"
-            elif any(kw in objective for kw in ["reconciliation", "matching", "exception"]):
-                template_key = "reconciliation_report"
+            # Use the component registry to select relevant components
+            selected_components = select_components_for_prompt(objective)
 
-            template = AI_REPORT_STRUCTURES.get(template_key, AI_REPORT_STRUCTURES["custom"])
+            # Build structure nodes from selected components
+            structure = []
+            sections = []
+            position = 1
+
+            # Add executive summary section
+            structure.append({"id": "executive_summary", "label": "Executive Summary", "children": []})
+            sections.append({
+                "id": f"sec_exec_summary_{uuid.uuid4().hex[:6]}",
+                "type": "text",
+                "position": position,
+                "config": {
+                    "content": f"## Executive Summary\n\nThis report provides a comprehensive analysis based on your request: {request.get('objective', '')}",
+                    "ai_generated": True,
+                },
+            })
+            position += 1
+
+            # Group selected components by type
+            kpi_comps = [c for c in selected_components if c["type"] == "kpi"]
+            chart_comps = [c for c in selected_components if c["type"] == "chart"]
+            table_comps = [c for c in selected_components if c["type"] == "table"]
+            widget_comps = [c for c in selected_components if c["type"] in ("heatmap", "pivot", "trend")]
+
+            # Add KPI section
+            if kpi_comps:
+                structure.append({"id": "key_metrics", "label": "Key Metrics", "children": []})
+                sections.append({
+                    "id": f"sec_kpis_{uuid.uuid4().hex[:6]}",
+                    "type": "kpi",
+                    "position": position,
+                    "config": {
+                        "component_ids": [c["id"] for c in kpi_comps],
+                        "analytics_source": "kpi",
+                        "ai_generated": True,
+                    },
+                })
+                position += 1
+
+            # Add chart sections
+            if chart_comps:
+                structure.append({"id": "charts_analysis", "label": "Charts & Visualizations", "children": []})
+                for comp in chart_comps:
+                    sections.append({
+                        "id": f"sec_chart_{uuid.uuid4().hex[:6]}",
+                        "type": "chart",
+                        "position": position,
+                        "config": {
+                            "component_id": comp["id"],
+                            "analytics_source": "chart_data",
+                            "analytics_params": comp.get("analytics_params", {}),
+                            "title": comp["name"],
+                            "ai_generated": True,
+                        },
+                    })
+                    position += 1
+
+            # Add table sections
+            if table_comps:
+                structure.append({"id": "detailed_data", "label": "Detailed Data", "children": []})
+                for comp in table_comps:
+                    sections.append({
+                        "id": f"sec_table_{uuid.uuid4().hex[:6]}",
+                        "type": "table",
+                        "position": position,
+                        "config": {
+                            "component_id": comp["id"],
+                            "analytics_source": "table_data",
+                            "analytics_params": comp.get("analytics_params", {}),
+                            "title": comp["name"],
+                            "ai_generated": True,
+                        },
+                    })
+                    position += 1
+
+            # Add analytics widget sections
+            if widget_comps:
+                structure.append({"id": "advanced_analytics", "label": "Advanced Analytics", "children": []})
+                for comp in widget_comps:
+                    sections.append({
+                        "id": f"sec_widget_{uuid.uuid4().hex[:6]}",
+                        "type": comp["type"],
+                        "position": position,
+                        "config": {
+                            "component_id": comp["id"],
+                            "analytics_source": comp["analytics_source"],
+                            "analytics_params": comp.get("analytics_params", {}),
+                            "title": comp["name"],
+                            "ai_generated": True,
+                        },
+                    })
+                    position += 1
+
+            # Add recommendations section
+            structure.append({"id": "recommendations", "label": "Recommendations", "children": []})
+            sections.append({
+                "id": f"sec_recommendations_{uuid.uuid4().hex[:6]}",
+                "type": "text",
+                "position": position,
+                "config": {
+                    "content": "## Recommendations\n\nBased on the analysis, the following recommendations are suggested:\n1. Review key metrics for actionable insights\n2. Investigate any anomalies or discrepancies\n3. Monitor trends for proactive decision-making",
+                    "ai_generated": True,
+                },
+            })
 
             return {
-                "title": title or template["title"],
-                "structure": template["structure"],
-                "sections": template["sections"],
-                "template_used": template_key,
+                "title": title,
+                "structure": structure,
+                "sections": sections,
+                "selected_components": [c["id"] for c in selected_components],
             }
         except Exception as exc:
             logger.warning("Failed to generate AI report structure: %s", exc)

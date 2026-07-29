@@ -1,9 +1,14 @@
 import logging
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Query, Request
 
 from app.modules.reporting.services.report_service import ReportService
+from app.modules.reporting.services.analytics_service import AnalyticsService
+from app.modules.reporting.analytics.component_registry import (
+    get_all_components,
+    get_component_by_id,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -214,3 +219,52 @@ def list_exports(
 ):
     exports = ReportService.list_exports(report_id, limit=limit, offset=offset)
     return {"status": "ok", "data": exports, "total": len(exports)}
+
+
+# --- Analytics Component Registry Endpoints ---
+
+@router.get("/analytics-components")
+def list_analytics_components(
+    group: Optional[str] = Query(default=None, description="Filter by component group (kpis, charts, tables, analytics_widgets)"),
+    component_type: Optional[str] = Query(default=None, description="Filter by type (kpi, chart, table, heatmap, pivot, trend)"),
+):
+    """List all available analytics components for the report builder."""
+    if group:
+        from app.modules.reporting.analytics.component_registry import get_components_by_group
+        components = get_components_by_group(group)
+    elif component_type:
+        from app.modules.reporting.analytics.component_registry import get_components_by_type
+        components = get_components_by_type(component_type)
+    else:
+        components = get_all_components()
+    return {"status": "ok", "data": components, "total": len(components)}
+
+
+@router.get("/analytics-components/{component_id}")
+def get_analytics_component(component_id: str):
+    """Get a single analytics component by ID."""
+    component = get_component_by_id(component_id)
+    if not component:
+        return {"status": "error", "message": f"Component '{component_id}' not found"}
+    return {"status": "ok", "data": component}
+
+
+@router.get("/analytics-components/{component_id}/preview")
+def preview_analytics_component(
+    component_id: str,
+    date_from: Optional[str] = Query(default=None),
+    date_to: Optional[str] = Query(default=None),
+    bucket: str = Query(default="month"),
+    limit: int = Query(default=50, ge=1, le=200),
+):
+    """Get live preview data for an analytics component."""
+    params = {
+        "date_from": date_from,
+        "date_to": date_to,
+        "bucket": bucket,
+        "limit": limit,
+    }
+    result = AnalyticsService.get_component_preview(component_id, params)
+    if not result:
+        return {"status": "error", "message": f"Failed to get preview for component '{component_id}'"}
+    return {"status": "ok", "data": result}

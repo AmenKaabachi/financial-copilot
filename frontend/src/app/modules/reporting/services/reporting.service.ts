@@ -4,7 +4,7 @@ import { Observable } from 'rxjs';
 import {
   ReportDefinition, ReportVersion, ReportTemplate, ExportJob,
   AnalyticsKpis, ChartDataResponse, AiReportRequest, AiReportPreview,
-  ReportSection
+  ReportSection, AnalyticsComponent, ComponentPreview
 } from '../models/reporting.models';
 
 export interface DashboardSummary {
@@ -169,5 +169,26 @@ export class ReportingService {
 
   listExports(reportId: string): Observable<{ status: string; data: ExportJob[] }> {
     return this.http.get<{ status: string; data: ExportJob[] }>(`${this.apiUrl}/builder/reports/${reportId}/exports`);
+  }
+
+  // Analytics Component Registry
+  getAnalyticsComponents(group?: string, componentType?: string): Observable<{ status: string; data: AnalyticsComponent[]; total: number }> {
+    let params = new HttpParams();
+    if (group) params = params.set('group', group);
+    if (componentType) params = params.set('component_type', componentType);
+    return this.http.get<{ status: string; data: AnalyticsComponent[]; total: number }>(`${this.apiUrl}/builder/analytics-components`, { params });
+  }
+
+  getAnalyticsComponent(componentId: string): Observable<{ status: string; data: AnalyticsComponent }> {
+    return this.http.get<{ status: string; data: AnalyticsComponent }>(`${this.apiUrl}/builder/analytics-components/${componentId}`);
+  }
+
+  getComponentPreview(componentId: string, params?: { date_from?: string; date_to?: string; bucket?: string; limit?: number }): Observable<{ status: string; data: ComponentPreview }> {
+    let httpParams = new HttpParams();
+    if (params?.date_from) httpParams = httpParams.set('date_from', params.date_from);
+    if (params?.date_to) httpParams = httpParams.set('date_to', params.date_to);
+    if (params?.bucket) httpParams = httpParams.set('bucket', params.bucket);
+    if (params?.limit) httpParams = httpParams.set('limit', params.limit.toString());
+    return this.http.get<{ status: string; data: ComponentPreview }>(`${this.apiUrl}/builder/analytics-components/${componentId}/preview`, { params: httpParams });
   }
 }
