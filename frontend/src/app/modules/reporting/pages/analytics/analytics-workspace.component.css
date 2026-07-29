@@ -209,16 +209,54 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
-.kpi-icon {
-  font-size: 20px;
-  width: 40px;
-  height: 40px;
+/* ✅ KPI Icon Wrapper - ensures SVG renders properly */
+.kpi-icon-wrapper {
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 40px;
+  height: 40px;
   background: #F7F8FA;
   border-radius: 6px;
   flex-shrink: 0;
+}
+
+.kpi-icon-wrapper svg {
+  width: 22px;
+  height: 22px;
+  display: block;
+}
+
+/* ✅ KPI Icon Colors per KPI type */
+.kpi-card[data-key="revenue"] .kpi-icon-wrapper svg {
+  stroke: #2F5FE0 !important;
+}
+.kpi-card[data-key="expenses"] .kpi-icon-wrapper svg {
+  stroke: #EF4444 !important;
+}
+.kpi-card[data-key="profit"] .kpi-icon-wrapper svg {
+  stroke: #10B981 !important;
+}
+.kpi-card[data-key="cash_flow"] .kpi-icon-wrapper svg {
+  stroke: #8B5CF6 !important;
+}
+.kpi-card[data-key="outstanding_invoices"] .kpi-icon-wrapper svg {
+  stroke: #F59E0B !important;
+}
+.kpi-card[data-key="payment_delays"] .kpi-icon-wrapper svg {
+  stroke: #EF4444 !important;
+}
+.kpi-card[data-key="reconciliation_rate"] .kpi-icon-wrapper svg {
+  stroke: #10B981 !important;
+}
+.kpi-card[data-key="total_transactions"] .kpi-icon-wrapper svg {
+  stroke: #3B82F6 !important;
+}
+.kpi-card[data-key="anomaly_stats"] .kpi-icon-wrapper svg {
+  stroke: #EF4444 !important;
+}
+.kpi-card[data-key="matching_accuracy"] .kpi-icon-wrapper svg {
+  stroke: #8B5CF6 !important;
 }
 
 .kpi-info {

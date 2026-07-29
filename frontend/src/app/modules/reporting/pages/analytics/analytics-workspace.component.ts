@@ -149,6 +149,14 @@ export class AnalyticsWorkspaceComponent implements OnInit, AfterViewInit, OnDes
         console.log('[Analytics] KPI response:', res);
         if (res.status === 'ok') {
           this.kpis = res.data;
+
+          // ✅ Trigger chart initialization after KPI loads
+          setTimeout(() => {
+            if (this.chartDataLoaded) {
+              console.log('[Analytics] KPI loaded, retry chart initialization');
+              this.tryInitCharts();
+            }
+          }, 300);
         } else {
           console.error('[Analytics] KPI response status not ok:', res);
           this.error = true;
@@ -550,19 +558,4 @@ export class AnalyticsWorkspaceComponent implements OnInit, AfterViewInit, OnDes
     }
   }
 
-  getKpiIcon(key: string): string {
-    const icons: Record<string, string> = {
-      revenue: '💰',
-      expenses: '💸',
-      profit: '📈',
-      cash_flow: '💵',
-      outstanding_invoices: '📋',
-      payment_delays: '⏰',
-      reconciliation_rate: '✅',
-      total_transactions: '🔄',
-      anomaly_stats: '⚠️',
-      matching_accuracy: '🎯',
-    };
-    return icons[key] || '📊';
-  }
 }
