@@ -1,7 +1,10 @@
 import logging
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Query, Request, BackgroundTasks
+from fastapi.responses import FileResponse
+from starlette.background import BackgroundTask
+import os
 
 from app.modules.reporting.services.report_service import ReportService
 from app.modules.reporting.services.analytics_service import AnalyticsService
@@ -33,9 +36,12 @@ def list_reports(
 
 @router.get("/reports/{report_id}")
 def get_report(report_id: str):
+    logger.info(f"[Builder API] GET /reports/{report_id} called")
     report = ReportService.get_report(report_id)
     if not report:
+        logger.warning(f"[Builder API] GET /reports/{report_id} - Report not found in DB")
         return {"status": "error", "message": "Report not found"}
+    logger.info(f"[Builder API] GET /reports/{report_id} - Successfully retrieved report {report_id}")
     return {"status": "ok", "data": report}
 
 
@@ -177,12 +183,11 @@ def get_version(report_id: str, version_number: int):
 @router.get("/templates")
 def list_templates(
     category: Optional[str] = Query(default=None),
-    scope: Optional[str] = Query(default=None),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
 ):
     templates = ReportService.list_templates(
-        category=category, scope=scope, limit=limit, offset=offset
+        category=category, limit=limit, offset=offset
     )
     return {"status": "ok", "data": templates, "total": len(templates)}
 
@@ -200,15 +205,47 @@ def get_template(template_id: str):
 @router.post("/reports/{report_id}/export")
 async def create_export(report_id: str, request: Request):
     body = await request.json()
+    format_type = body.get("format", "pdf")
+    
+    report = ReportService.get_report(report_id)
+    if not report:
+        return {"status": "error", "message": "Report not found"}
+        
+    from app.modules.reporting.services.export_engine import ExportEngine
+    file_path = ExportEngine.generate_export_file(report, format_type)
+    
+    if not file_path or not os.path.exists(file_path):
+        return {"status": "error", "message": "Failed to generate export file"}
+        
+    # Log the successful export generation in the database
     export = ReportService.create_export(
         report_id=report_id,
-        format=body.get("format", "pdf"),
-        version_id=body.get("version_id"),
+        format=format_type,
         requested_by=body.get("requested_by"),
     )
-    if not export:
-        return {"status": "error", "message": "Failed to create export job"}
-    return {"status": "ok", "data": export}
+    if export:
+        # Mark it completed since we generated it synchronously
+        from app.shared.database.supabase_client import get_supabase_client
+        from datetime import datetime, timezone
+        get_supabase_client().table("report_exports").update({
+            "status": "completed", 
+            "completed_at": datetime.now(timezone.utc).isoformat()
+        }).eq("id", export["id"]).execute()
+        
+    filename = os.path.basename(file_path)
+    content_type = "application/pdf"
+    if format_type in ["xls", "xlsx", "excel"]:
+        content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    elif format_type == "csv":
+        content_type = "text/csv"
+
+    # Return FileResponse. The BackgroundTask ensures the temp file is deleted after being sent.
+    return FileResponse(
+        path=file_path,
+        filename=filename,
+        media_type=content_type,
+        background=BackgroundTask(os.remove, file_path)
+    )
 
 
 @router.get("/reports/{report_id}/exports")
@@ -220,6 +257,14 @@ def list_exports(
     exports = ReportService.list_exports(report_id, limit=limit, offset=offset)
     return {"status": "ok", "data": exports, "total": len(exports)}
 
+@router.get("/exports/{export_id}")
+def get_export(export_id: str):
+    try:
+        from app.shared.database.supabase_client import get_supabase_client
+        result = get_supabase_client().table("report_exports").select("id, report_id, format, status, file_url, requested_at, completed_at").eq("id", export_id).single().execute()
+        return {"status": "ok", "data": result.data}
+    except Exception as exc:
+        return {"status": "error", "message": "Export not found"}
 
 # --- Analytics Component Registry Endpoints ---
 

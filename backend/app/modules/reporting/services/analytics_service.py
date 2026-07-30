@@ -325,3 +325,17 @@ class AnalyticsService:
         Uses intent-based matching via the component registry.
         """
         return select_components_for_prompt(prompt)
+
+    # ------------------------------------------------------------------
+    # Component Listing
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def get_available_components() -> List[Dict[str, Any]]:
+        """
+        Get all available analytics components.
+        
+        This provides a clean interface for routes and other services
+        to access the component registry without direct imports.
+        """
+        return get_all_components()

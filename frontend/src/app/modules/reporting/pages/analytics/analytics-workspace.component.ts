@@ -276,27 +276,23 @@ export class AnalyticsWorkspaceComponent implements OnInit, AfterViewInit, OnDes
     const containers = this.chartContainers.toArray();
     console.log('[Analytics] Containers:', containers.length);
 
-    // Map chart types to container indices (matches HTML order)
-    const chartDomMap: Record<string, HTMLElement | undefined> = {
-      reconciliation_trend: containers[0]?.nativeElement,
-      transaction_volume: containers[1]?.nativeElement,
-      anomaly_distribution: containers[2]?.nativeElement,
-      anomaly_type: containers[3]?.nativeElement,
-      bank_vs_erp: containers[4]?.nativeElement,
-      payment_status: containers[5]?.nativeElement,
-    };
-
     let renderedCount = 0;
 
-    // Render each chart
+    // Render each chart using dynamic lookup based on data-chart attribute
     this.CHART_TYPES.forEach(type => {
       if (this.chartDataCache[type]) {
-        const dom = chartDomMap[type];
+        // 🔥 DYNAMIC LOOKUP: Find the container with matching data-chart attribute
+        const container = containers.find(
+          c => c.nativeElement.dataset['chart'] === type
+        );
+        const dom = container?.nativeElement;
+
         if (dom) {
           const success = this.renderChart(type, dom);
           if (success) renderedCount++;
         } else {
-          console.warn('[Analytics] DOM not ready for chart:', type);
+          console.warn('[Analytics] DOM not found for chart type:', type, 'Available containers:',
+            containers.map(c => c.nativeElement.dataset['chart']));
         }
       }
     });

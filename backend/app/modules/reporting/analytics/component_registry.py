@@ -15,6 +15,49 @@ intent-based selection by the AI report generator.
 from typing import Any, Dict, List, Optional
 
 # ---------------------------------------------------------------------------
+# Synonyms for better AI matching
+# ---------------------------------------------------------------------------
+SYNONYMS = {
+    "revenue": [
+        "income",
+        "sales",
+        "turnover"
+    ],
+    "outstanding": [
+        "unpaid",
+        "receivable",
+        "due",
+        "pending"
+    ],
+    "anomaly": [
+        "risk",
+        "fraud",
+        "suspicious"
+    ],
+    "profit": [
+        "earnings",
+        "net income",
+        "bottom line"
+    ],
+    "expenses": [
+        "costs",
+        "spending",
+        "outflows",
+        "expenditure"
+    ],
+    "reconciliation": [
+        "matching",
+        "reconciling",
+        "bank rec"
+    ],
+    "cash_flow": [
+        "liquidity",
+        "cash movement",
+        "money flow"
+    ],
+}
+
+# ---------------------------------------------------------------------------
 # KPI Components
 # ---------------------------------------------------------------------------
 KPI_COMPONENTS = [
@@ -143,7 +186,7 @@ KPI_COMPONENTS = [
         "analytics_params": {"kpi_key": "total_transactions"},
         "description": "ERP and bank transaction counts with total volume",
         "component_group": "kpis",
-        "icon": "🔄",
+        "icon": "📦",
         "use_cases": ["transaction overview", "volume analysis", "data completeness check"],
         "keywords": ["transactions", "volume", "erp", "bank"],
         "config_schema": {
@@ -431,45 +474,101 @@ def get_components_by_type(comp_type: str) -> List[Dict[str, Any]]:
     return [c for c in ALL_COMPONENTS if c["type"] == comp_type]
 
 
+def _expand_synonyms(keywords: List[str]) -> List[str]:
+    """
+    Expand a list of keywords by adding synonyms from the SYNONYMS dictionary.
+    """
+    expanded = list(keywords)
+    for kw in keywords:
+        kw_lower = kw.lower()
+        for key, syn_list in SYNONYMS.items():
+            if kw_lower == key.lower() or kw_lower in [s.lower() for s in syn_list]:
+                # Add all synonyms for this key
+                for syn in syn_list:
+                    if syn.lower() not in [e.lower() for e in expanded]:
+                        expanded.append(syn)
+                # Add the main key if not present
+                if key.lower() not in [e.lower() for e in expanded]:
+                    expanded.append(key)
+                break
+    return expanded
+
+
 def select_components_for_prompt(prompt: str) -> List[Dict[str, Any]]:
     """
     Select relevant components based on a user prompt using intent-based matching.
     
     Analyzes the prompt for domain, period, and goal, then maps to
     appropriate components using keywords and use_cases.
+    
+    Now uses synonyms for better AI matching.
     """
     prompt_lower = prompt.lower()
-    selected_ids: set = set()
     
-    # Score each component by keyword match count
+    # Score each component by keyword match count (with synonyms)
     scored: List[tuple[int, str]] = []
     for comp in ALL_COMPONENTS:
         score = 0
-        for kw in comp.get("keywords", []):
+        
+        # Get original keywords and expand with synonyms
+        original_keywords = comp.get("keywords", [])
+        expanded_keywords = _expand_synonyms(original_keywords)
+        
+        # Score using expanded keywords
+        for kw in expanded_keywords:
             if kw.lower() in prompt_lower:
                 score += 2
+        
+        # Score using use_cases (also with synonym expansion)
         for uc in comp.get("use_cases", []):
-            words = uc.lower().split()
-            match_count = sum(1 for w in words if w in prompt_lower)
-            if match_count >= 2:
+            uc_lower = uc.lower()
+            # Check if use case matches prompt directly
+            if uc_lower in prompt_lower:
                 score += 1
+            # Check if any word in use case is a synonym match
+            uc_words = uc_lower.split()
+            for word in uc_words:
+                if word in prompt_lower:
+                    score += 1
+        
+        # Score by name words
         name_words = comp["name"].lower().split()
-        match_count = sum(1 for w in name_words if w in prompt_lower)
-        if match_count >= 1:
-            score += 1
+        for word in name_words:
+            if word in prompt_lower:
+                score += 1
+            # Check if name word has synonyms
+            for key, syn_list in SYNONYMS.items():
+                if word == key.lower() or word in [s.lower() for s in syn_list]:
+                    # Boost score if synonym matches
+                    score += 1
+                    break
+        
         if score > 0:
             scored.append((score, comp["id"]))
     
+    # Sort by score (highest first) to maintain ranking
     scored.sort(key=lambda x: -x[0])
     
+    # Build result list maintaining order
+    selected_ids: List[str] = []
     for score, cid in scored:
-        if score >= 3:
-            selected_ids.add(cid)
+        if score >= 3 and cid not in selected_ids:
+            selected_ids.append(cid)
     if len(selected_ids) < 3:
         for score, cid in scored:
-            if score >= 2:
-                selected_ids.add(cid)
+            if score >= 2 and cid not in selected_ids:
+                selected_ids.append(cid)
     if not selected_ids:
-        selected_ids = {"kpi_revenue", "kpi_expenses", "kpi_profit", "chart_reconciliation_trend"}
+        # Better default for reconciliation platform
+        selected_ids = [
+            "kpi_revenue",
+            "kpi_expenses",
+            "kpi_profit",
+            "kpi_cash_flow",
+            "chart_reconciliation_trend",
+            "chart_anomaly_distribution",
+            "table_reconciliations"
+        ]
     
-    return [COMPONENT_INDEX[cid] for cid in selected_ids]
+    # Return in ranked order
+    return [COMPONENT_INDEX[cid] for cid in selected_ids if cid in COMPONENT_INDEX]

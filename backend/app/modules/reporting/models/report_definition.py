@@ -9,9 +9,9 @@ class CreationMethod(str, Enum):
 
 
 class ReportStatus(str, Enum):
-    DRAFT = "DRAFT"
-    GENERATED = "GENERATED"
-    PUBLISHED = "PUBLISHED"
+    DRAFT = "draft"
+    PUBLISHED = "published"
+    ARCHIVED = "archived"
 
 
 class SectionType(str, Enum):

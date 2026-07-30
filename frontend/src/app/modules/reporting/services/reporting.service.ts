@@ -99,7 +99,7 @@ export class ReportingService {
 
   createBuilderReport(name: string, description: string, source: string): Observable<{ status: string; data: ReportDefinition }> {
     return this.http.post<{ status: string; data: ReportDefinition }>(`${this.apiUrl}/builder/reports`, {
-      name, description, source, status: 'DRAFT',
+      name, description, source, status: 'draft',
       definition: { sections: [] },
     });
   }

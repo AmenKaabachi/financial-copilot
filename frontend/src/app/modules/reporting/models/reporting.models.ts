@@ -7,7 +7,7 @@ export interface ReportDefinition {
   owner_id: string;
   source: 'manual' | 'ai' | 'template';
   creation_method: 'AI_GENERATED' | 'MANUAL_BUILDER';
-  status: 'DRAFT' | 'GENERATED' | 'PUBLISHED';
+  status: 'draft' | 'published' | 'archived';
   definition: Record<string, unknown>;
   prompt_used?: string;
   report_structure?: ReportStructureNode[];
@@ -44,7 +44,7 @@ export interface ReportTemplate {
   id: string;
   name: string;
   category: string;
-  scope: 'builtin' | 'company' | 'user';
+
   definition: Record<string, unknown>;
   thumbnail_url: string;
   created_by: string;
@@ -56,7 +56,7 @@ export interface ReportTemplate {
 export interface ExportJob {
   id: string;
   report_id: string;
-  version_id: string;
+
   format: 'pdf' | 'excel' | 'csv';
   status: 'queued' | 'processing' | 'done' | 'failed';
   file_url: string;

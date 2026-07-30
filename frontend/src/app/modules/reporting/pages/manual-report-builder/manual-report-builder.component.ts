@@ -366,6 +366,7 @@ export class ManualReportBuilderComponent implements OnInit {
   }
 
   saveDraft(): void {
+    console.log('[ManualBuilder] saveDraft() initiated');
     if (!this.reportTitle.trim()) {
       this.error = 'Please enter a report title.';
       return;
@@ -380,17 +381,22 @@ export class ManualReportBuilderComponent implements OnInit {
       sections: this.sections,
     };
 
+    console.log('[ManualBuilder] Calling reportingService.createManualReport() with data:', data);
     this.reportingService.createManualReport(data).subscribe({
       next: (res) => {
+        console.log('[ManualBuilder] createManualReport response:', res);
         if (res.status === 'ok' && res.data) {
           this.createdReportId = res.data.id;
+          console.log('[ManualBuilder] Navigating to /reporting/builder/' + res.data.id);
           this.router.navigate(['/reporting/builder', res.data.id]);
         } else {
+          console.error('[ManualBuilder] Failed to create report: status not ok', res);
           this.error = 'Failed to create report.';
         }
         this.saving = false;
       },
-      error: () => {
+      error: (err) => {
+        console.error('[ManualBuilder] HTTP error during createManualReport:', err);
         this.error = 'An error occurred while saving the report.';
         this.saving = false;
       },

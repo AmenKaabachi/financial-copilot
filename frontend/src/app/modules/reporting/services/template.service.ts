@@ -10,15 +10,15 @@ export class TemplateService {
   constructor(private http: HttpClient) {}
 
   getTemplates(): Observable<{ status: string; data: ReportTemplate[] }> {
-    return this.http.get<{ status: string; data: ReportTemplate[] }>('/reporting/builder/templates');
+    return this.http.get<{ status: string; data: ReportTemplate[] }>('/api/reporting/builder/templates');
   }
 
   getTemplate(templateId: string): Observable<{ status: string; data: ReportTemplate }> {
-    return this.http.get<{ status: string; data: ReportTemplate }>(`/reporting/builder/templates/${templateId}`);
+    return this.http.get<{ status: string; data: ReportTemplate }>(`/api/reporting/builder/templates/${templateId}`);
   }
 
   createFromTemplate(templateId: string, name: string, description: string): Observable<{ status: string; data: ReportTemplate }> {
-    return this.http.post<{ status: string; data: ReportTemplate }>('/reporting/builder/templates/apply', {
+    return this.http.post<{ status: string; data: ReportTemplate }>('/api/reporting/builder/templates/apply', {
       template_id: templateId,
       name,
       description,

@@ -2,6 +2,7 @@ import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+import os
 
 from app.shared.database.supabase_client import get_supabase_client
 from app.modules.reporting.services.analytics_service import AnalyticsService
@@ -68,8 +69,7 @@ class ReportService:
                 "description": data.get("description", ""),
                 "report_type": data.get("report_type", "custom"),
                 "owner_id": data.get("owner_id"),
-                "status": data.get("status", "DRAFT"),
-                "definition": data.get("definition", {}),
+                "status": data.get("status", "draft"),                "definition": data.get("definition", {}),
                 "is_favorite": data.get("is_favorite", False),
                 "created_at": now,
                 "updated_at": now,
@@ -332,7 +332,7 @@ class ReportService:
                 "description": data.get("description", ""),
                 "report_type": "ai",
                 "owner_id": data.get("owner_id"),
-                "status": "GENERATED",
+                "status": "draft",
                 "creation_method": "AI_GENERATED",
                 "prompt_used": data.get("prompt_used"),
                 "report_structure": data.get("report_structure", []),
@@ -358,7 +358,7 @@ class ReportService:
                 "description": data.get("description", ""),
                 "report_type": "manual",
                 "owner_id": data.get("owner_id"),
-                "status": "DRAFT",
+                "status": "draft",
                 "creation_method": "MANUAL_BUILDER",
                 "sections": data.get("sections", []),
                 "definition": {"sections": data.get("sections", [])},
@@ -395,7 +395,7 @@ class ReportService:
             now = datetime.now(timezone.utc).isoformat()
             result = (
                 _table("report_definitions")
-                .update({"status": "PUBLISHED", "updated_at": now})
+                .update({"status": "published", "updated_at": now})
                 .eq("id", report_id)
                 .execute()
             )
@@ -409,18 +409,15 @@ class ReportService:
     @staticmethod
     def list_templates(
         category: Optional[str] = None,
-        scope: Optional[str] = None,
         limit: int = 20,
         offset: int = 0,
     ) -> List[Dict[str, Any]]:
         try:
             query = _table("report_templates").select(
-                "id, name, category, scope, definition, thumbnail_url, created_by, is_favorite, created_at, updated_at"
+                "id, name, category, definition, thumbnail_url, created_by, is_favorite, created_at, updated_at"
             )
             if category:
                 query = query.eq("category", category)
-            if scope:
-                query = query.eq("scope", scope)
             query = query.order("created_at", desc=True).range(offset, offset + limit - 1)
             result = query.execute()
             return result.data or []
@@ -433,7 +430,7 @@ class ReportService:
         try:
             result = (
                 _table("report_templates")
-                .select("id, name, category, scope, definition, thumbnail_url, created_by, is_favorite, created_at, updated_at")
+                .select("id, name, category, definition, thumbnail_url, created_by, is_favorite, created_at, updated_at")
                 .eq("id", template_id)
                 .single()
                 .execute()
@@ -454,7 +451,6 @@ class ReportService:
             record = {
                 "name": report.get("name", "Untitled Template"),
                 "category": category,
-                "scope": "user",
                 "definition": report.get("definition", {}),
                 "thumbnail_url": "",
                 "created_by": report.get("owner_id"),
@@ -474,17 +470,12 @@ class ReportService:
     def create_export(
         report_id: str,
         format: str = "pdf",
-        version_id: Optional[str] = None,
         requested_by: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         try:
             now = datetime.now(timezone.utc).isoformat()
-            if not version_id:
-                versions = ReportService.list_versions(report_id, limit=1)
-                version_id = versions[0]["id"] if versions else None
             record = {
                 "report_id": report_id,
-                "version_id": version_id,
                 "format": format,
                 "status": "queued",
                 "file_url": "",
@@ -506,7 +497,7 @@ class ReportService:
         try:
             result = (
                 _table("report_exports")
-                .select("id, report_id, version_id, format, status, file_url, requested_at, completed_at")
+                .select("id, report_id, format, status, file_url, requested_at, completed_at")
                 .eq("report_id", report_id)
                 .order("requested_at", desc=True)
                 .range(offset, offset + limit - 1)
@@ -516,3 +507,57 @@ class ReportService:
         except Exception as exc:
             logger.warning("Failed to list exports for report %s: %s", report_id, exc)
             return []
+
+    @staticmethod
+    def process_export_task(export_id: str, report_id: str, format_type: str):
+        try:
+            logger.info(f"Starting background export task for {export_id}")
+            _table("report_exports").update({"status": "processing"}).eq("id", export_id).execute()
+            
+            report = ReportService.get_report(report_id)
+            if not report:
+                raise Exception(f"Report {report_id} not found")
+                
+            from app.modules.reporting.services.export_engine import ExportEngine
+            file_path = ExportEngine.generate_export_file(report, format_type)
+            if not file_path:
+                raise Exception("Failed to generate export file")
+                
+            filename = os.path.basename(file_path)
+            
+            content_type = "application/pdf"
+            if format_type in ["xls", "xlsx", "excel"]:
+                content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            elif format_type == "csv":
+                content_type = "text/csv"
+                
+            # Use supabase storage
+            try:
+                with open(file_path, "rb") as f:
+                    get_supabase_client().storage.from_("exports").upload(
+                        file=f.read(),
+                        path=filename,
+                        file_options={"content-type": content_type}
+                    )
+                public_url = get_supabase_client().storage.from_("exports").get_public_url(filename)
+            except Exception as storage_exc:
+                logger.warning(f"Failed to upload to Supabase storage (maybe 'exports' bucket is missing?): {storage_exc}")
+                # Fallback to local URL for demo purposes if bucket doesn't exist
+                public_url = f"/static/exports/{filename}"
+            
+            now = datetime.now(timezone.utc).isoformat()
+            _table("report_exports").update({
+                "status": "completed",
+                "file_url": public_url,
+                "completed_at": now
+            }).eq("id", export_id).execute()
+            
+            logger.info(f"Export task {export_id} completed successfully. URL: {public_url}")
+            
+            # Cleanup temp file
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                
+        except Exception as exc:
+            logger.error(f"Background export task failed for {export_id}: {exc}")
+            _table("report_exports").update({"status": "failed"}).eq("id", export_id).execute()

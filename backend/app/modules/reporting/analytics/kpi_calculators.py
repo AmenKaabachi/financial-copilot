@@ -42,30 +42,40 @@ def calculate_revenue(date_from: Optional[str] = None, date_to: Optional[str] = 
         invoices = result.data or []
         total_count = result.count or len(invoices)
 
+        # Separate revenue by status
         total_revenue = sum(
+            float(inv.get("amount", 0) or 0)
+            for inv in invoices
+        )
+        collected_revenue = sum(
             float(inv.get("amount", 0) or 0)
             for inv in invoices
             if str(inv.get("status", "")).upper() == "PAID"
         )
-        outstanding = sum(
+        outstanding_revenue = sum(
             float(inv.get("amount", 0) or 0)
             for inv in invoices
             if str(inv.get("status", "")).upper() != "PAID"
         )
         paid_count = sum(1 for inv in invoices if str(inv.get("status", "")).upper() == "PAID")
+        unpaid_count = sum(1 for inv in invoices if str(inv.get("status", "")).upper() != "PAID")
 
         return {
             "total_revenue": round(total_revenue, 2),
-            "outstanding_revenue": round(outstanding, 2),
+            "collected_revenue": round(collected_revenue, 2),
+            "outstanding_revenue": round(outstanding_revenue, 2),
             "invoice_count": total_count,
             "paid_invoice_count": paid_count,
+            "unpaid_invoice_count": unpaid_count,
         }
     except Exception as exc:
         return {
             "total_revenue": 0.0,
+            "collected_revenue": 0.0,
             "outstanding_revenue": 0.0,
             "invoice_count": 0,
             "paid_invoice_count": 0,
+            "unpaid_invoice_count": 0,
         }
 
 
@@ -91,28 +101,41 @@ def calculate_expenses(date_from: Optional[str] = None, date_to: Optional[str] =
         return {"total_expenses": 0.0, "expense_count": 0}
 
 
-def calculate_profit(
+def calculate_cash_performance(
     revenue: Optional[Dict[str, Any]] = None,
     expenses: Optional[Dict[str, Any]] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
 ) -> Dict[str, Any]:
+    """
+    Calculate cash performance based on actual collected revenue and expenses.
+    Note: This is cash-based performance, not accounting profit.
+    """
     if revenue is None:
         revenue = calculate_revenue(date_from=date_from, date_to=date_to)
     if expenses is None:
         expenses = calculate_expenses(date_from=date_from, date_to=date_to)
 
     total_revenue = revenue.get("total_revenue", 0)
+    collected_revenue = revenue.get("collected_revenue", 0)
+    outstanding_revenue = revenue.get("outstanding_revenue", 0)
     total_expenses = expenses.get("total_expenses", 0)
-    net_profit = total_revenue - total_expenses
-    margin = (net_profit / total_revenue * 100) if total_revenue > 0 else 0.0
-
+    
+    net_cash_result = collected_revenue - total_expenses
+    cash_margin = (net_cash_result / collected_revenue * 100) if collected_revenue > 0 else 0.0
+    
     return {
-        "net_profit": round(net_profit, 2),
-        "profit_margin": round(margin, 2),
+        "net_cash_result": round(net_cash_result, 2),
+        "cash_margin": round(cash_margin, 2),
         "total_revenue": total_revenue,
+        "collected_revenue": collected_revenue,
+        "outstanding_revenue": outstanding_revenue,
         "total_expenses": total_expenses,
     }
+
+
+# Keep backward compatibility - alias for old function name
+calculate_profit = calculate_cash_performance
 
 
 def calculate_cash_flow(date_from: Optional[str] = None, date_to: Optional[str] = None) -> Dict[str, Any]:
@@ -293,7 +316,7 @@ def calculate_matching_accuracy(date_from: Optional[str] = None, date_to: Option
 KPI_CALCULATORS = {
     "revenue": calculate_revenue,
     "expenses": calculate_expenses,
-    "profit": calculate_profit,
+    "profit": calculate_cash_performance,  # Now uses the new function
     "cash_flow": calculate_cash_flow,
     "outstanding_invoices": calculate_outstanding_invoices,
     "payment_delays": calculate_payment_delays,

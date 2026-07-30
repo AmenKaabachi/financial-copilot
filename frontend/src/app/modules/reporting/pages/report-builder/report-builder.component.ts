@@ -171,19 +171,23 @@ export class ReportBuilderComponent implements OnInit {
   ) {}
 
   ngOnInit(): void {
+    console.log('[ReportBuilder] ngOnInit triggered');
     // Check if we have a report ID from the route
     this.route.params.subscribe(params => {
       const reportId = params['id'];
+      console.log(`[ReportBuilder] Route parameter 'id':`, reportId);
       if (reportId) {
+        console.log(`[ReportBuilder] Calling loadReport(${reportId})`);
         this.loadReport(reportId);
       } else {
+        console.log(`[ReportBuilder] No report ID found, loading all reports`);
         this.loadReports();
       }
     });
   }
 
   loadReports(): void {
-    this.http.get<{ status: string; data: ReportDefinition[] }>('/reporting/builder/reports').subscribe({
+    this.http.get<{ status: string; data: ReportDefinition[] }>('/api/reporting/builder/reports').subscribe({
       next: (res) => {
         if (res.status === 'ok') {
           this.reports = res.data;
@@ -198,16 +202,22 @@ export class ReportBuilderComponent implements OnInit {
   }
 
   loadReport(reportId: string): void {
-    this.http.get<{ status: string; data: ReportDefinition }>(`/reporting/builder/reports/${reportId}`).subscribe({
+    console.log(`[ReportBuilder] Executing HTTP GET to /api/reporting/builder/reports/${reportId}`);
+    this.http.get<{ status: string; data: ReportDefinition }>(`/api/reporting/builder/reports/${reportId}`).subscribe({
       next: (res) => {
+        console.log(`[ReportBuilder] Received HTTP Response:`, res);
         if (res.status === 'ok') {
+          console.log(`[ReportBuilder] Mapping to selectedReport model.`);
           this.selectedReport = res.data;
           this.parseDefinition(res.data.definition);
           this.loadVersions();
+        } else {
+          console.log(`[ReportBuilder] HTTP Response status was not ok`);
         }
         this.loading = false;
       },
-      error: () => {
+      error: (err) => {
+        console.error(`[ReportBuilder] HTTP request failed:`, err);
         this.error = true;
         this.loading = false;
       },
@@ -228,7 +238,7 @@ export class ReportBuilderComponent implements OnInit {
 
   createReport(): void {
     if (!this.newReportName.trim()) return;
-    this.http.post<{ status: string; data: ReportDefinition }>('/reporting/builder/reports', {
+    this.http.post<{ status: string; data: ReportDefinition }>('/api/reporting/builder/reports', {
       name: this.newReportName,
       description: this.newReportDescription,
       source: this.newReportSource,
@@ -250,7 +260,7 @@ export class ReportBuilderComponent implements OnInit {
 
   deleteReport(reportId: string): void {
     if (!confirm('Delete this report?')) return;
-    this.http.delete<{ status: string }>(`/reporting/builder/reports/${reportId}`).subscribe({
+    this.http.delete<{ status: string }>(`/api/reporting/builder/reports/${reportId}`).subscribe({
       next: (res) => {
         if (res.status === 'ok') {
           this.reports = this.reports.filter(r => r.id !== reportId);
@@ -265,7 +275,7 @@ export class ReportBuilderComponent implements OnInit {
   }
 
   toggleFavorite(reportId: string): void {
-    this.http.post<{ status: string; data: ReportDefinition }>(`/reporting/builder/reports/${reportId}/favorite`, {}).subscribe({
+    this.http.post<{ status: string; data: ReportDefinition }>(`/api/reporting/builder/reports/${reportId}/favorite`, {}).subscribe({
       next: (res) => {
         if (res.status === 'ok' && res.data) {
           const idx = this.reports.findIndex(r => r.id === reportId);
@@ -322,7 +332,7 @@ export class ReportBuilderComponent implements OnInit {
     if (!this.selectedReport) return;
     this.saving = true;
     const definition = { sections: this.sections };
-    this.http.put<{ status: string; data: ReportDefinition }>(`/reporting/builder/reports/${this.selectedReport.id}`, {
+    this.http.put<{ status: string; data: ReportDefinition }>(`/api/reporting/builder/reports/${this.selectedReport.id}`, {
       definition,
     }).subscribe({
       next: (res) => {
@@ -340,7 +350,7 @@ export class ReportBuilderComponent implements OnInit {
   // Version management
   loadVersions(): void {
     if (!this.selectedReport) return;
-    this.http.get<{ status: string; data: any[] }>(`/reporting/builder/reports/${this.selectedReport.id}/versions`).subscribe({
+    this.http.get<{ status: string; data: any[] }>(`/api/reporting/builder/reports/${this.selectedReport.id}/versions`).subscribe({
       next: (res) => {
         if (res.status === 'ok') this.versions = res.data;
       },
@@ -350,7 +360,7 @@ export class ReportBuilderComponent implements OnInit {
 
   createVersion(): void {
     if (!this.selectedReport) return;
-    this.http.post<{ status: string; data: any }>(`/reporting/builder/reports/${this.selectedReport.id}/versions`, {
+    this.http.post<{ status: string; data: any }>(`/api/reporting/builder/reports/${this.selectedReport.id}/versions`, {
       definition: { sections: this.sections },
       change_note: this.changeNote || 'Manual save',
     }).subscribe({
@@ -368,16 +378,23 @@ export class ReportBuilderComponent implements OnInit {
   exportReport(): void {
     if (!this.selectedReport) return;
     this.exportStatus = 'processing';
-    this.http.post<{ status: string; data: any }>(`/reporting/builder/reports/${this.selectedReport.id}/export`, {
-      format: this.exportFormat,
-    }).subscribe({
-      next: (res) => {
-        if (res.status === 'ok') {
-          this.exportStatus = 'done';
-          setTimeout(() => { this.exportStatus = ''; }, 3000);
-        } else {
-          this.exportStatus = 'failed';
-        }
+    this.http.post(`/api/reporting/builder/reports/${this.selectedReport.id}/export`, 
+      { format: this.exportFormat },
+      { responseType: 'blob' }
+    ).subscribe({
+      next: (blob) => {
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const filename = this.selectedReport ? this.selectedReport.name.replace(/[^a-z0-9]/gi, '_').toLowerCase() : 'report';
+        a.download = `${filename}_export.${this.exportFormat}`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+        
+        this.exportStatus = 'done';
+        setTimeout(() => { this.exportStatus = ''; }, 3000);
       },
       error: () => { this.exportStatus = 'failed'; },
     });
