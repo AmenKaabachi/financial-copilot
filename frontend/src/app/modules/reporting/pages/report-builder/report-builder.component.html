@@ -169,10 +169,10 @@
               {{ exportStatus === 'processing' ? 'Processing...' : 'Export Report' }}
             </button>
             <div class="export-status-msg" *ngIf="exportStatus === 'done'">
-              ✅ Export job created successfully!
+              ✅ Export completed successfully!
             </div>
             <div class="export-status-msg error" *ngIf="exportStatus === 'failed'">
-              ❌ Export failed. Please try again.
+              ❌ Export failed: {{ exportStep || 'Please try again.' }}
             </div>
           </div>
         </div>
@@ -241,6 +241,22 @@
       <div class="modal-footer">
         <button class="btn-cancel" (click)="showNewReport = false">Cancel</button>
         <button class="btn-submit" (click)="createReport()" [disabled]="!newReportName.trim()">Create</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Export Progress Modal -->
+  <div class="modal-overlay" *ngIf="showExportProgress">
+    <div class="modal-content export-progress-modal">
+      <div class="modal-header">
+        <h2>Generating Report</h2>
+      </div>
+      <div class="modal-body">
+        <div class="progress-bar-container">
+          <div class="progress-bar-fill" [style.width.%]="exportProgress"></div>
+        </div>
+        <div class="progress-percentage">{{ exportProgress }}%</div>
+        <div class="progress-step">{{ exportStep }}</div>
       </div>
     </div>
   </div>

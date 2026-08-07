@@ -33,9 +33,13 @@ try:
     from matplotlib.patches import FancyBboxPatch
 
     MATPLOTLIB_AVAILABLE = True
-except ImportError:
+    logger.info("[CHART] matplotlib imported successfully (version: %s)", matplotlib.__version__)
+except ImportError as e:
     MATPLOTLIB_AVAILABLE = False
-    logger.warning("matplotlib is not installed. Chart rendering will not be available.")
+    logger.warning("[CHART] matplotlib is not installed. Chart rendering will not be available. Error: %s", e)
+except Exception as e:
+    MATPLOTLIB_AVAILABLE = False
+    logger.error("[CHART] matplotlib import failed unexpectedly: %s", e)
 
 
 # ---------------------------------------------------------------------------
@@ -74,6 +78,120 @@ class ChartRenderer:
     """Generates chart images from AnalyticsService chart data."""
 
     @staticmethod
+    def validate_chart_data(chart_data: Dict[str, Any]) -> tuple[bool, str]:
+        """
+        Validate chart data structure before rendering.
+
+        Args:
+            chart_data: Dictionary with chart data
+
+        Returns:
+            Tuple of (is_valid, error_message)
+        """
+        if not chart_data:
+            return False, "Chart data is empty"
+
+        chart_type = chart_data.get("chart_type")
+        if not chart_type:
+            return False, "Missing chart_type in chart data"
+
+        labels = chart_data.get("labels")
+        if not labels or not isinstance(labels, list):
+            return False, "Missing or invalid labels in chart data"
+
+        datasets = chart_data.get("datasets")
+        if not datasets or not isinstance(datasets, list):
+            return False, "Missing or invalid datasets in chart data"
+
+        if len(datasets) == 0:
+            return False, "Datasets list is empty"
+
+        for i, dataset in enumerate(datasets):
+            if not isinstance(dataset, dict):
+                return False, f"Dataset {i} is not a dictionary"
+            if "data" not in dataset:
+                return False, f"Dataset {i} missing 'data' key"
+            if not isinstance(dataset["data"], list):
+                return False, f"Dataset {i} 'data' is not a list"
+            if len(dataset["data"]) == 0:
+                return False, f"Dataset {i} 'data' list is empty"
+
+        return True, ""
+
+    @staticmethod
+    def _normalize_chart_data(chart_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Normalize chart payloads into a renderer-safe structure.
+
+        This keeps chart rendering resilient when upstream analytics data has
+        mixed value types or uneven dataset lengths.
+        """
+        if not isinstance(chart_data, dict):
+            return None
+
+        chart_type = chart_data.get("chart_type") or "bar"
+        labels = chart_data.get("labels")
+        labels_list = labels if isinstance(labels, list) else []
+
+        datasets_raw = chart_data.get("datasets")
+        if not isinstance(datasets_raw, list) or not datasets_raw:
+            return None
+
+        normalized_datasets: List[Dict[str, Any]] = []
+        max_points = len(labels_list)
+        for i, dataset in enumerate(datasets_raw):
+            if not isinstance(dataset, dict):
+                continue
+
+            raw_values = dataset.get("data")
+            if not isinstance(raw_values, list):
+                continue
+
+            numeric_values: List[float] = []
+            for raw in raw_values:
+                if raw is None:
+                    numeric_values.append(0.0)
+                    continue
+                try:
+                    numeric_values.append(float(raw))
+                except (TypeError, ValueError):
+                    numeric_values.append(0.0)
+
+            if not numeric_values:
+                continue
+
+            max_points = max(max_points, len(numeric_values))
+            normalized_datasets.append(
+                {
+                    "label": dataset.get("label", f"Series {i + 1}"),
+                    "data": numeric_values,
+                }
+            )
+
+        if not normalized_datasets:
+            return None
+
+        if not labels_list and max_points > 0:
+            labels_list = [f"Item {index + 1}" for index in range(max_points)]
+
+        labels_list = [str(label) for label in labels_list]
+        target_len = len(labels_list)
+        if target_len == 0:
+            return None
+
+        for dataset in normalized_datasets:
+            values = dataset["data"]
+            if len(values) < target_len:
+                dataset["data"] = values + [0.0] * (target_len - len(values))
+            elif len(values) > target_len:
+                dataset["data"] = values[:target_len]
+
+        return {
+            "chart_type": chart_type,
+            "labels": labels_list,
+            "datasets": normalized_datasets,
+        }
+
+    @staticmethod
     def render_chart(chart_data: Dict[str, Any], output_path: Optional[str] = None) -> Optional[str]:
         """
         Render a chart from structured chart data.
@@ -88,22 +206,41 @@ class ChartRenderer:
         Returns:
             Path to the rendered PNG image, or None on failure.
         """
+        invocation = uuid.uuid4().hex[:8]
+        logger.debug(f"[CHART][{invocation}] render_chart() called. MATPLOTLIB_AVAILABLE={MATPLOTLIB_AVAILABLE}")
         if not MATPLOTLIB_AVAILABLE:
-            logger.warning("[CHART] matplotlib not available — cannot render chart")
+            logger.warning(f"[CHART][{invocation}] matplotlib not available — cannot render chart")
+            logger.debug(f"[CHART][{invocation}] returning None (matplotlib_unavailable)")
             return None
 
-        chart_type = chart_data.get("chart_type", "bar")
-        labels = chart_data.get("labels", [])
-        datasets = chart_data.get("datasets", [])
-
-        if not labels or not datasets:
-            logger.warning(f"[CHART] No chart data to render (labels={len(labels)}, datasets={len(datasets)})")
+        normalized_data = ChartRenderer._normalize_chart_data(chart_data)
+        if not normalized_data:
+            logger.warning(f"[CHART][{invocation}] Chart data normalization failed")
+            logger.debug(f"[CHART][{invocation}] Raw chart_data: {chart_data}")
+            logger.debug(f"[CHART][{invocation}] returning None (normalization_failed)")
             return None
 
-        logger.info(f"[CHART] Rendering chart type='{chart_type}' with {len(labels)} data points, {len(datasets)} datasets")
+        # Validate chart data structure
+        is_valid, error_msg = ChartRenderer.validate_chart_data(normalized_data)
+        if not is_valid:
+            logger.warning(f"[CHART][{invocation}] Chart data validation failed: {error_msg}")
+            logger.debug(f"[CHART][{invocation}] Invalid normalized chart_data structure: {normalized_data}")
+            logger.debug(f"[CHART][{invocation}] returning None (validation_failed)")
+            return None
+
+        chart_type = normalized_data.get("chart_type", "bar")
+        labels = normalized_data.get("labels", [])
+        datasets = normalized_data.get("datasets", [])
+
+        logger.info(f"[CHART][{invocation}] Rendering chart type='{chart_type}' with {len(labels)} data points, {len(datasets)} datasets")
+        logger.debug(f"[CHART][{invocation}] labels: {labels[:5]}... (showing first 5)")
+        logger.debug(f"[CHART][{invocation}] datasets: {len(datasets)} datasets")
+        for i, ds in enumerate(datasets):
+            logger.debug(f"[CHART][{invocation}]   dataset[{i}]: label={ds.get('label', 'N/A')}, data_len={len(ds.get('data', []))}")
 
         try:
             fig = None
+            logger.debug(f"[CHART][{invocation}] Dispatching chart_type='{chart_type}' to renderer")
             if chart_type == "line":
                 fig = ChartRenderer._render_line_chart(labels, datasets)
             elif chart_type == "bar":
@@ -113,10 +250,12 @@ class ChartRenderer:
             elif chart_type in ("pie", "donut"):
                 fig = ChartRenderer._render_pie_chart(labels, datasets, donut=(chart_type == "donut"))
             else:
-                logger.warning(f"[CHART] Unknown chart type: '{chart_type}' — falling back to bar")
+                logger.warning(f"[CHART][{invocation}] Unknown chart type: '{chart_type}' — falling back to bar")
                 fig = ChartRenderer._render_bar_chart(labels, datasets)
 
             if fig is None:
+                logger.error(f"[CHART][{invocation}] Figure creation returned None")
+                logger.debug(f"[CHART][{invocation}] returning None (figure_none)")
                 return None
 
             # Save to file
@@ -126,21 +265,25 @@ class ChartRenderer:
                     f"chart_{uuid.uuid4().hex[:8]}.png"
                 )
 
+            logger.debug(f"[CHART][{invocation}] Saving chart to: {output_path}")
             fig.savefig(output_path, dpi=150, bbox_inches="tight", facecolor="white", edgecolor="none")
             plt.close(fig)
 
             if os.path.exists(output_path):
                 file_size = os.path.getsize(output_path)
-                logger.info(f"[CHART] Chart saved to {output_path} ({file_size} bytes)")
+                logger.info(f"[CHART] Generated image: {output_path} ({file_size} bytes)")
+                logger.debug(f"[CHART][{invocation}] returning success (path)")
                 return output_path
 
-            logger.error(f"[CHART] Chart file was not created at {output_path}")
+            logger.error(f"[CHART] Failed generating chart: output file was not created at {output_path}")
+            logger.debug(f"[CHART][{invocation}] returning None (file_missing)")
             return None
 
         except Exception as exc:
-            logger.error(f"[CHART] Failed to render chart: {exc}", exc_info=True)
+            logger.error(f"[CHART] Failed generating chart: {exc}", exc_info=True)
             if fig:
                 plt.close(fig)
+            logger.debug(f"[CHART][{invocation}] returning None (exception)")
             return None
 
     # ------------------------------------------------------------------

@@ -1,9 +1,10 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, OnDestroy } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterModule } from '@angular/router';
-import { ReportDefinition } from '../../models/reporting.models';
+import { ReportDefinition, ExportJobStatus } from '../../models/reporting.models';
+import { ExportService } from '../../services/export.service';
 
 interface SectionNode {
   id: string;
@@ -27,7 +28,7 @@ interface AvailableElement {
   templateUrl: './report-builder.component.html',
   styleUrl: './report-builder.component.css',
 })
-export class ReportBuilderComponent implements OnInit {
+export class ReportBuilderComponent implements OnInit, OnDestroy {
   reports: ReportDefinition[] = [];
   selectedReport: ReportDefinition | null = null;
   sections: SectionNode[] = [];
@@ -45,6 +46,10 @@ export class ReportBuilderComponent implements OnInit {
   // Export
   exportFormat: string = 'pdf';
   exportStatus: string = '';
+  showExportProgress = false;
+  exportProgress = 0;
+  exportStep = '';
+  private exportPollTimer: any = null;
 
   // Versions
   versions: any[] = [];
@@ -167,7 +172,8 @@ export class ReportBuilderComponent implements OnInit {
 
   constructor(
     private http: HttpClient,
-    private route: ActivatedRoute
+    private route: ActivatedRoute,
+    private exportService: ExportService
   ) {}
 
   ngOnInit(): void {
@@ -184,6 +190,10 @@ export class ReportBuilderComponent implements OnInit {
         this.loadReports();
       }
     });
+  }
+
+  ngOnDestroy(): void {
+    this.stopExportPolling();
   }
 
   loadReports(): void {
@@ -374,14 +384,77 @@ export class ReportBuilderComponent implements OnInit {
     });
   }
 
-  // Export
+  // Export with async job + progress polling
   exportReport(): void {
     if (!this.selectedReport) return;
     this.exportStatus = 'processing';
-    this.http.post(`/api/reporting/builder/reports/${this.selectedReport.id}/export`, 
-      { format: this.exportFormat },
-      { responseType: 'blob' }
-    ).subscribe({
+    this.showExportProgress = true;
+    this.exportProgress = 0;
+    this.exportStep = 'Initializing export...';
+
+    this.exportService.createExport(this.selectedReport.id, this.exportFormat).subscribe({
+      next: (res) => {
+        if (res.status === 'ok' && res.data.job_id) {
+          this.startExportPolling(res.data.job_id);
+        } else {
+          this.exportStatus = 'failed';
+          this.showExportProgress = false;
+          this.exportStep = 'Failed to start export.';
+        }
+      },
+      error: (err) => {
+        console.error('[ReportBuilder] Export request failed:', err);
+        this.exportStatus = 'failed';
+        this.showExportProgress = false;
+        this.exportStep = 'Failed to start export.';
+      },
+    });
+  }
+
+  private startExportPolling(jobId: string): void {
+    this.stopExportPolling();
+    this.exportPollTimer = setInterval(() => {
+      this.exportService.getExportJobStatus(jobId).subscribe({
+        next: (res) => {
+          if (res.status === 'ok' && res.data) {
+            const job = res.data;
+            this.exportProgress = job.progress || 0;
+            this.exportStep = job.current_step || 'Processing...';
+
+            if (job.status === 'completed') {
+              this.stopExportPolling();
+              this.exportProgress = 100;
+              this.exportStep = 'Completed';
+              this.exportStatus = 'done';
+              // Download the file
+              this.downloadCompletedExport(jobId);
+            } else if (job.status === 'failed') {
+              this.stopExportPolling();
+              this.exportStatus = 'failed';
+              this.exportStep = job.error_message || 'Export failed.';
+              setTimeout(() => { this.showExportProgress = false; }, 3000);
+            }
+          }
+        },
+        error: (err) => {
+          console.error('[ReportBuilder] Export status polling error:', err);
+          this.stopExportPolling();
+          this.exportStatus = 'failed';
+          this.exportStep = 'Failed to check export status.';
+        },
+      });
+    }, 1500);
+  }
+
+  private stopExportPolling(): void {
+    if (this.exportPollTimer) {
+      clearInterval(this.exportPollTimer);
+      this.exportPollTimer = null;
+    }
+  }
+
+  private downloadCompletedExport(jobId: string): void {
+    this.exportService.downloadExportFile(jobId).subscribe({
       next: (blob) => {
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -392,11 +465,18 @@ export class ReportBuilderComponent implements OnInit {
         a.click();
         document.body.removeChild(a);
         window.URL.revokeObjectURL(url);
-        
+
         this.exportStatus = 'done';
-        setTimeout(() => { this.exportStatus = ''; }, 3000);
+        setTimeout(() => {
+          this.showExportProgress = false;
+          this.exportStatus = '';
+        }, 3000);
       },
-      error: () => { this.exportStatus = 'failed'; },
+      error: (err) => {
+        console.error('[ReportBuilder] File download failed:', err);
+        this.exportStatus = 'failed';
+        this.exportStep = 'Export completed but file download failed.';
+      },
     });
   }
 

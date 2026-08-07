@@ -11,6 +11,8 @@ from app.modules.reporting.analytics.component_registry import (
     get_component_by_id,
     select_components_for_prompt,
 )
+from app.modules.reporting.services.ai_report_service import AIReportService
+from app.modules.reporting.schemas.ai_report_schemas import ReportGenerationRequest
 
 logger = logging.getLogger(__name__)
 
@@ -196,156 +198,132 @@ class ReportService:
     @staticmethod
     def generate_ai_report_structure(request: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
-        Analyze the user's prompt and generate an appropriate report structure.
-        Uses the component registry to select relevant analytics components
-        based on intent-based matching of the user's prompt.
+        Analyze the user's prompt and generate an appropriate report structure as a Report Architect.
+        Does NOT copy the prompt into body text or titles.
         """
         try:
-            objective = (request.get("objective", "") or "").lower()
-            title = request.get("title", "Financial Report")
+            prompt = request.get("objective") or request.get("prompt") or request.get("title") or "Financial Report"
+            logger.info(f"[AI_BUILDER] User prompt received: {prompt}")
 
-            # Use the component registry to select relevant components
-            selected_components = select_components_for_prompt(objective)
+            ai_service = AIReportService()
+            definition = ai_service.generate_report_definition_from_prompt(prompt)
 
-            # Build structure nodes from selected components
+            sections = definition.get("sections", [])
+            section_types = [sec.get("type") for sec in sections if isinstance(sec, dict)]
+
+            logger.info(f"[AI_BUILDER] Generated sections: {section_types}")
+            logger.info("[AI_BUILDER] Validation passed")
+            logger.info("[AI_BUILDER] Saving report definition")
+
+            # Build UI structure representation
             structure = []
-            sections = []
-            position = 1
-
-            # Add executive summary section
-            structure.append({"id": "executive_summary", "label": "Executive Summary", "children": []})
-            sections.append({
-                "id": f"sec_exec_summary_{uuid.uuid4().hex[:6]}",
-                "type": "text",
-                "position": position,
-                "config": {
-                    "content": f"## Executive Summary\n\nThis report provides a comprehensive analysis based on your request: {request.get('objective', '')}",
-                    "ai_generated": True,
-                },
-            })
-            position += 1
-
-            # Group selected components by type
-            kpi_comps = [c for c in selected_components if c["type"] == "kpi"]
-            chart_comps = [c for c in selected_components if c["type"] == "chart"]
-            table_comps = [c for c in selected_components if c["type"] == "table"]
-            widget_comps = [c for c in selected_components if c["type"] in ("heatmap", "pivot", "trend")]
-
-            # Add KPI section
-            if kpi_comps:
-                structure.append({"id": "key_metrics", "label": "Key Metrics", "children": []})
-                sections.append({
-                    "id": f"sec_kpis_{uuid.uuid4().hex[:6]}",
-                    "type": "kpi",
-                    "position": position,
-                    "config": {
-                        "component_ids": [c["id"] for c in kpi_comps],
-                        "analytics_source": "kpi",
-                        "ai_generated": True,
-                    },
+            for sec in sections:
+                sec_type = sec.get("type", "section")
+                sec_title = sec.get("config", {}).get("title", sec_type.replace("_", " ").title())
+                structure.append({
+                    "id": sec.get("id"),
+                    "label": sec_title,
+                    "type": sec_type,
                 })
-                position += 1
-
-            # Add chart sections
-            if chart_comps:
-                structure.append({"id": "charts_analysis", "label": "Charts & Visualizations", "children": []})
-                for comp in chart_comps:
-                    sections.append({
-                        "id": f"sec_chart_{uuid.uuid4().hex[:6]}",
-                        "type": "chart",
-                        "position": position,
-                        "config": {
-                            "component_id": comp["id"],
-                            "analytics_source": "chart_data",
-                            "analytics_params": comp.get("analytics_params", {}),
-                            "title": comp["name"],
-                            "ai_generated": True,
-                        },
-                    })
-                    position += 1
-
-            # Add table sections
-            if table_comps:
-                structure.append({"id": "detailed_data", "label": "Detailed Data", "children": []})
-                for comp in table_comps:
-                    sections.append({
-                        "id": f"sec_table_{uuid.uuid4().hex[:6]}",
-                        "type": "table",
-                        "position": position,
-                        "config": {
-                            "component_id": comp["id"],
-                            "analytics_source": "table_data",
-                            "analytics_params": comp.get("analytics_params", {}),
-                            "title": comp["name"],
-                            "ai_generated": True,
-                        },
-                    })
-                    position += 1
-
-            # Add analytics widget sections
-            if widget_comps:
-                structure.append({"id": "advanced_analytics", "label": "Advanced Analytics", "children": []})
-                for comp in widget_comps:
-                    sections.append({
-                        "id": f"sec_widget_{uuid.uuid4().hex[:6]}",
-                        "type": comp["type"],
-                        "position": position,
-                        "config": {
-                            "component_id": comp["id"],
-                            "analytics_source": comp["analytics_source"],
-                            "analytics_params": comp.get("analytics_params", {}),
-                            "title": comp["name"],
-                            "ai_generated": True,
-                        },
-                    })
-                    position += 1
-
-            # Add recommendations section
-            structure.append({"id": "recommendations", "label": "Recommendations", "children": []})
-            sections.append({
-                "id": f"sec_recommendations_{uuid.uuid4().hex[:6]}",
-                "type": "text",
-                "position": position,
-                "config": {
-                    "content": "## Recommendations\n\nBased on the analysis, the following recommendations are suggested:\n1. Review key metrics for actionable insights\n2. Investigate any anomalies or discrepancies\n3. Monitor trends for proactive decision-making",
-                    "ai_generated": True,
-                },
-            })
 
             return {
-                "title": title,
+                "title": definition.get("name", "Financial Report"),
+                "description": definition.get("description", "Executive Financial Analysis"),
                 "structure": structure,
                 "sections": sections,
-                "selected_components": [c["id"] for c in selected_components],
+                "definition": definition,
+                "debug_info": {
+                    "user_prompt": prompt,
+                    "generated_types": section_types,
+                    "section_count": len(sections),
+                },
             }
         except Exception as exc:
-            logger.warning("Failed to generate AI report structure: %s", exc)
+            logger.error(f"[AI_BUILDER] Failed to generate AI report structure: {exc}", exc_info=True)
             return None
 
     @staticmethod
     def create_ai_report(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Create a report using AI generation."""
         try:
+            logger.info("[AI_BUILDER] Saving report definition to database")
             now = datetime.now(timezone.utc).isoformat()
+            
+            sections = data.get("sections", [])
+            definition = data.get("definition") or {"sections": sections}
+            if not definition.get("sections"):
+                definition["sections"] = sections
+
             record = {
-                "name": data.get("name", ""),
-                "description": data.get("description", ""),
+                "name": data.get("name") or data.get("title") or "AI Financial Report",
+                "description": data.get("description", "Executive Financial Analysis"),
                 "report_type": "ai",
                 "owner_id": data.get("owner_id"),
                 "status": "draft",
                 "creation_method": "AI_GENERATED",
-                "prompt_used": data.get("prompt_used"),
-                "report_structure": data.get("report_structure", []),
-                "sections": data.get("sections", []),
-                "definition": {"sections": data.get("sections", [])},
+                "prompt_used": data.get("prompt_used") or data.get("objective"),
+                "report_structure": data.get("report_structure") or data.get("structure", []),
+                "sections": sections,
+                "definition": definition,
                 "is_favorite": False,
                 "created_at": now,
                 "updated_at": now,
             }
             result = _table("report_definitions").insert(record).execute()
+            logger.info(f"[AI_BUILDER] Report saved successfully with ID: {result.data[0]['id'] if result.data else 'unknown'}")
             return result.data[0] if result.data else None
         except Exception as exc:
-            logger.warning("Failed to create AI report: %s", exc)
+            logger.warning(f"[AI_BUILDER] Failed to create AI report in DB: {exc}")
+            return None
+
+
+    @staticmethod
+    def generate_ai_report_content(request: Dict[str, Any], report_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """
+        Generate AI-powered content for report sections.
+        
+        This method delegates to AIReportService to generate intelligent
+        financial report content using the existing Copilot LLM infrastructure.
+        
+        Args:
+            request: Dictionary containing:
+                - report_type: Type of report (monthly_financial, quarterly_review, etc.)
+                - date_from: Start date (ISO format)
+                - date_to: End date (ISO format)
+                - sections: List of section types to generate
+                - language: Language code (en, fr, ar)
+                - business_objectives: Optional list of business objectives
+            report_id: Optional report ID for audit logging
+        
+        Returns:
+            Dictionary with generated sections and metadata
+        """
+        try:
+            # Create request schema
+            report_request = ReportGenerationRequest(
+                report_type=request.get("report_type", "monthly_financial"),
+                date_from=request.get("date_from"),
+                date_to=request.get("date_to"),
+                sections=request.get("sections", ["executive_summary", "recommendations"]),
+                language=request.get("language", "en"),
+                user_preferences=request.get("user_preferences", {}),
+                business_objectives=request.get("business_objectives"),
+            )
+
+            # Use AIReportService to generate content
+            ai_service = AIReportService()
+            result = ai_service.generate_report_sections(report_request, report_id)
+
+            logger.info(
+                "AI report content generated successfully for report_type=%s, sections=%s",
+                request.get("report_type"),
+                request.get("sections"),
+            )
+
+            return result
+
+        except Exception as exc:
+            logger.warning("Failed to generate AI report content: %s", exc)
             return None
 
     @staticmethod
@@ -561,3 +539,93 @@ class ReportService:
         except Exception as exc:
             logger.error(f"Background export task failed for {export_id}: {exc}")
             _table("report_exports").update({"status": "failed"}).eq("id", export_id).execute()
+
+    # --- Export Job Methods (async progress tracking) ---
+
+    @staticmethod
+    def create_export_job(report_id: str, format_type: str = "pdf") -> Optional[Dict[str, Any]]:
+        """Create a new export job with progress tracking."""
+        try:
+            now = datetime.now(timezone.utc).isoformat()
+            record = {
+                "report_id": report_id,
+                "status": "queued",
+                "progress": 0,
+                "current_step": "Queued",
+                "file_path": "",
+                "created_at": now,
+            }
+            result = _table("report_export_jobs").insert(record).execute()
+            return result.data[0] if result.data else None
+        except Exception as exc:
+            logger.warning(f"Failed to create export job for report {report_id}: {exc}")
+            return None
+
+    @staticmethod
+    def update_export_job_progress(
+        job_id: str,
+        progress: int,
+        current_step: str,
+        status: Optional[str] = None,
+    ) -> bool:
+        """Update the progress of an export job."""
+        try:
+            update_data = {
+                "progress": progress,
+                "current_step": current_step,
+            }
+            if status:
+                update_data["status"] = status
+            _table("report_export_jobs").update(update_data).eq("id", job_id).execute()
+            return True
+        except Exception as exc:
+            logger.warning(f"Failed to update export job {job_id}: {exc}")
+            return False
+
+    @staticmethod
+    def complete_export_job(job_id: str, file_path: str) -> bool:
+        """Mark an export job as completed."""
+        try:
+            now = datetime.now(timezone.utc).isoformat()
+            _table("report_export_jobs").update({
+                "status": "completed",
+                "progress": 100,
+                "current_step": "Completed",
+                "file_path": file_path,
+                "completed_at": now,
+            }).eq("id", job_id).execute()
+            return True
+        except Exception as exc:
+            logger.warning(f"Failed to complete export job {job_id}: {exc}")
+            return False
+
+    @staticmethod
+    def fail_export_job(job_id: str, error_message: str) -> bool:
+        """Mark an export job as failed."""
+        try:
+            now = datetime.now(timezone.utc).isoformat()
+            _table("report_export_jobs").update({
+                "status": "failed",
+                "error_message": str(error_message)[:500],
+                "completed_at": now,
+            }).eq("id", job_id).execute()
+            return True
+        except Exception as exc:
+            logger.warning(f"Failed to mark export job {job_id} as failed: {exc}")
+            return False
+
+    @staticmethod
+    def get_export_job(job_id: str) -> Optional[Dict[str, Any]]:
+        """Get the current status of an export job."""
+        try:
+            result = (
+                _table("report_export_jobs")
+                .select("id, report_id, status, progress, current_step, file_path, error_message, created_at, completed_at")
+                .eq("id", job_id)
+                .single()
+                .execute()
+            )
+            return result.data
+        except Exception as exc:
+            logger.warning(f"Failed to get export job {job_id}: {exc}")
+            return None

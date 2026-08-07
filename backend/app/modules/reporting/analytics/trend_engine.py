@@ -1,6 +1,11 @@
+import logging
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from app.shared.database.supabase_client import get_supabase_client
+
+
+logger = logging.getLogger(__name__)
 
 
 def _table(table: str):
@@ -16,6 +21,17 @@ def _apply_date_filter(query, date_field: str, date_from: Optional[str] = None, 
     return query
 
 
+def _get_week_key(date_val: str) -> str:
+    """Compute an ISO year-week key (e.g. '2026-W28') from a date string."""
+    try:
+        date_part = str(date_val)[:10]
+        d = datetime.strptime(date_part, "%Y-%m-%d").date()
+        year, week, _ = d.isocalendar()
+        return f"{year}-W{week:02d}"
+    except (ValueError, TypeError):
+        return str(date_val)[:10]
+
+
 def _get_bucket_key(date_val: str, bucket: str) -> str:
     if len(date_val) >= 7 and bucket == "month":
         return date_val[:7]
@@ -28,6 +44,8 @@ def _get_bucket_key(date_val: str, bucket: str) -> str:
         month = int(date_val[5:7])
         quarter = (month - 1) // 3 + 1
         return f"{year}-Q{quarter}"
+    if len(date_val) >= 10 and bucket == "week":
+        return _get_week_key(date_val)
     return date_val
 
 
@@ -93,45 +111,89 @@ def calculate_period_over_period(
     return result
 
 
+def _get_distinct_day_count(data: List[Dict[str, Any]]) -> int:
+    """Count the number of distinct calendar days in reconciliation data."""
+    days: set = set()
+    for item in data:
+        date_val = str(item.get("created_at", ""))
+        if len(date_val) >= 10:
+            days.add(date_val[:10])
+    return len(days)
+
+
+def _bucket_reconciliation_data(
+    data: List[Dict[str, Any]], bucket: str
+) -> List[Dict[str, Any]]:
+    """Bucket reconciliation rows by the given granularity into a trend series."""
+    success_buckets: Dict[str, int] = {}
+    failure_buckets: Dict[str, int] = {}
+    all_periods: set = set()
+
+    for item in data:
+        date_val = str(item.get("created_at", ""))
+        if not date_val:
+            continue
+        period = _get_bucket_key(date_val, bucket)
+        all_periods.add(period)
+        status = str(item.get("status", "")).upper()
+        if status == "MATCHED":
+            success_buckets[period] = success_buckets.get(period, 0) + 1
+        else:
+            failure_buckets[period] = failure_buckets.get(period, 0) + 1
+
+    sorted_periods = sorted(all_periods)
+    return [
+        {
+            "period": p,
+            "successful": success_buckets.get(p, 0),
+            "failed": failure_buckets.get(p, 0),
+            "total": success_buckets.get(p, 0) + failure_buckets.get(p, 0),
+        }
+        for p in sorted_periods
+    ]
+
+
 def get_reconciliation_trend(
     bucket: str = "month",
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    """Get monthly reconciliation success/failure trend from reconciliations table."""
+    """Get reconciliation success/failure trend from reconciliations table.
+
+    Uses adaptive bucketing: if the requested bucket granularity yields a
+    single period but the raw data spans multiple distinct days, the data is
+    automatically re-bucketed by ``week`` (then by ``day`` as a last resort)
+    so the resulting trend chart contains more than one data point.
+    """
     try:
         query = _table("reconciliations").select("created_at, status")
         query = _apply_date_filter(query, "created_at", date_from, date_to)
         result = query.execute()
         data = result.data or []
 
-        success_buckets: Dict[str, int] = {}
-        failure_buckets: Dict[str, int] = {}
-        all_periods: set = set()
+        if not data:
+            return []
 
-        for item in data:
-            date_val = str(item.get("created_at", ""))
-            if not date_val:
-                continue
-            period = _get_bucket_key(date_val, bucket)
-            all_periods.add(period)
-            status = str(item.get("status", "")).upper()
-            if status == "MATCHED":
-                success_buckets[period] = success_buckets.get(period, 0) + 1
+        series = _bucket_reconciliation_data(data, bucket)
+        if len(series) <= 1 and _get_distinct_day_count(data) > 1:
+            # Adaptive bucketing: the requested granularity is too coarse for
+            # the available date range. Re-bucket by week, then day if needed.
+            effective_bucket = bucket
+            weekly = _bucket_reconciliation_data(data, "week")
+            if len(weekly) > 1:
+                effective_bucket = "week"
+                series = weekly
             else:
-                failure_buckets[period] = failure_buckets.get(period, 0) + 1
+                effective_bucket = "day"
+                series = _bucket_reconciliation_data(data, "day")
+            logger.info(
+                f"[TREND] Adaptive bucketing: '{bucket}' -> '{effective_bucket}' "
+                f"({len(series)} periods)"
+            )
 
-        sorted_periods = sorted(all_periods)
-        return [
-            {
-                "period": p,
-                "successful": success_buckets.get(p, 0),
-                "failed": failure_buckets.get(p, 0),
-                "total": success_buckets.get(p, 0) + failure_buckets.get(p, 0),
-            }
-            for p in sorted_periods
-        ]
+        return series
     except Exception as exc:
+        logger.warning(f"[TREND] get_reconciliation_trend failed: {exc}")
         return []
 
 

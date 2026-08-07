@@ -58,10 +58,24 @@ export interface ExportJob {
   report_id: string;
 
   format: 'pdf' | 'excel' | 'csv';
-  status: 'queued' | 'processing' | 'done' | 'failed';
+  status: 'queued' | 'processing' | 'done' | 'failed' | 'completed';
   file_url: string;
   requested_at: string;
   completed_at: string;
+  progress?: number;
+  current_step?: string;
+  error_message?: string;
+}
+
+export interface ExportJobStatus {
+  job_id: string;
+  report_id?: string;
+  status: 'queued' | 'processing' | 'completed' | 'failed';
+  progress: number;
+  current_step: string;
+  error_message?: string;
+  created_at?: string;
+  completed_at?: string;
 }
 
 export interface AnalyticsKpis {

@@ -75,6 +75,32 @@ def delete_report(report_id: str):
     return {"status": "ok" if success else "error", "data": {"deleted": success}}
 
 
+@router.post("/reports/bulk-delete")
+async def bulk_delete_reports(request: Request):
+    """Delete multiple reports in a single operation."""
+    body = await request.json()
+    report_ids = body.get("report_ids", [])
+    if not report_ids or not isinstance(report_ids, list):
+        return {"status": "error", "message": "No report IDs provided"}
+
+    deleted = 0
+    failed = []
+    for report_id in report_ids:
+        try:
+            if ReportService.delete_report(report_id):
+                deleted += 1
+            else:
+                failed.append(report_id)
+        except Exception as exc:
+            logger.warning(f"[Builder API] Failed to delete report {report_id}: {exc}")
+            failed.append(report_id)
+
+    return {
+        "status": "ok",
+        "data": {"deleted": deleted, "failed": failed, "total": len(report_ids)},
+    }
+
+
 @router.post("/reports/{report_id}/favorite")
 def toggle_favorite(report_id: str):
     report = ReportService.toggle_favorite(report_id)
@@ -203,49 +229,123 @@ def get_template(template_id: str):
 # --- Export Endpoints ---
 
 @router.post("/reports/{report_id}/export")
-async def create_export(report_id: str, request: Request):
+async def create_export(report_id: str, request: Request, background_tasks: BackgroundTasks):
+    """Create an asynchronous export job and return its ID immediately.
+
+    The frontend polls GET /exports/{job_id}/status for progress updates,
+    then downloads the file from GET /exports/{job_id}/download when complete.
+    """
     body = await request.json()
     format_type = body.get("format", "pdf")
-    
+
     report = ReportService.get_report(report_id)
     if not report:
         return {"status": "error", "message": "Report not found"}
-        
-    from app.modules.reporting.services.export_engine import ExportEngine
-    file_path = ExportEngine.generate_export_file(report, format_type)
-    
-    if not file_path or not os.path.exists(file_path):
-        return {"status": "error", "message": "Failed to generate export file"}
-        
-    # Log the successful export generation in the database
-    export = ReportService.create_export(
-        report_id=report_id,
-        format=format_type,
-        requested_by=body.get("requested_by"),
-    )
-    if export:
-        # Mark it completed since we generated it synchronously
-        from app.shared.database.supabase_client import get_supabase_client
-        from datetime import datetime, timezone
-        get_supabase_client().table("report_exports").update({
-            "status": "completed", 
-            "completed_at": datetime.now(timezone.utc).isoformat()
-        }).eq("id", export["id"]).execute()
-        
-    filename = os.path.basename(file_path)
-    content_type = "application/pdf"
-    if format_type in ["xls", "xlsx", "excel"]:
-        content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    elif format_type == "csv":
-        content_type = "text/csv"
 
-    # Return FileResponse. The BackgroundTask ensures the temp file is deleted after being sent.
-    return FileResponse(
-        path=file_path,
-        filename=filename,
-        media_type=content_type,
-        background=BackgroundTask(os.remove, file_path)
+    # Create the export job record
+    job = ReportService.create_export_job(report_id, format_type)
+    if not job:
+        return {"status": "error", "message": "Failed to create export job"}
+
+    job_id = job["id"]
+
+    # Run the export in the background, updating progress in the DB
+    background_tasks.add_task(
+        _run_export_job,
+        job_id=job_id,
+        report_id=report_id,
+        format_type=format_type,
     )
+
+    return {
+        "status": "ok",
+        "data": {
+            "job_id": job_id,
+            "status": "queued",
+            "progress": 0,
+            "current_step": "Queued",
+        },
+    }
+
+
+def _run_export_job(job_id: str, report_id: str, format_type: str):
+    """Background task: generate the export file and update job progress."""
+    try:
+        report = ReportService.get_report(report_id)
+        if not report:
+            ReportService.fail_export_job(job_id, f"Report {report_id} not found")
+            return
+
+        # Mark as processing
+        ReportService.update_export_job_progress(
+            job_id, 0, "Initializing export", status="processing"
+        )
+
+        from app.modules.reporting.services.export_engine import ExportEngine
+
+        # Define progress callback that updates the DB
+        def progress_callback(progress: int, step: str):
+            ReportService.update_export_job_progress(job_id, progress, step)
+
+        file_path = ExportEngine.generate_export_file(
+            report, format_type, progress_callback=progress_callback
+        )
+
+        if not file_path or not os.path.exists(file_path):
+            ReportService.fail_export_job(job_id, "Failed to generate export file")
+            return
+
+        # Mark as completed with the file path
+        ReportService.complete_export_job(job_id, file_path)
+        logger.info(f"Export job {job_id} completed successfully. File: {file_path}")
+
+    except Exception as exc:
+        logger.error(f"Export job {job_id} failed: {exc}", exc_info=True)
+        ReportService.fail_export_job(job_id, str(exc))
+
+
+@router.get("/exports/{job_id}/status")
+def get_export_job_status(job_id: str):
+    """Get the current progress status of an export job."""
+    job = ReportService.get_export_job(job_id)
+    if not job:
+        return {"status": "error", "message": "Export job not found"}
+    return {
+        "status": "ok",
+        "data": {
+            "job_id": job["id"],
+            "report_id": job.get("report_id"),
+            "status": job.get("status"),
+            "progress": job.get("progress", 0),
+            "current_step": job.get("current_step", ""),
+            "error_message": job.get("error_message"),
+            "created_at": job.get("created_at"),
+            "completed_at": job.get("completed_at"),
+        },
+    }
+
+
+@router.get("/exports/{job_id}/download")
+def download_export_file(job_id: str):
+    """Download the completed export file for a job."""
+    job = ReportService.get_export_job(job_id)
+    if not job:
+        return {"status": "error", "message": "Export job not found"}
+    if job.get("status") != "completed":
+        return {"status": "error", "message": f"Export job is not completed (status: {job.get('status', 'unknown')})"}
+
+    file_path = job.get("file_path")
+    if not file_path or not os.path.exists(file_path):
+        return {"status": "error", "message": "Export file not found on server"}
+
+    filename = os.path.basename(file_path)
+    media_type = "application/pdf"
+    if filename.endswith((".xls", ".xlsx")):
+        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    elif filename.endswith(".csv"):
+        media_type = "text/csv"
+
+    return FileResponse(path=file_path, filename=filename, media_type=media_type)
 
 
 @router.get("/reports/{report_id}/exports")
