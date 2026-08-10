@@ -8,7 +8,9 @@ Architecture:
     ReportService -> AIReportService -> Existing LLM Manager -> Generated Sections
 """
 
+import json
 import logging
+import re
 import time
 from typing import Any, Dict, List, Optional
 
@@ -35,6 +37,33 @@ from app.modules.reporting.schemas.ai_report_schemas import (
 from app.shared.llm.manager import generate_answer
 
 logger = logging.getLogger(__name__)
+
+# Accept both UI labels and short language codes
+LANGUAGE_CODE_MAP = {
+    "english": "en",
+    "en": "en",
+    "french": "fr",
+    "fr": "fr",
+    "arabic": "ar",
+    "ar": "ar",
+}
+
+
+def _normalize_language(language: Optional[str]) -> str:
+    if not language:
+        return "en"
+    return LANGUAGE_CODE_MAP.get(str(language).strip().lower(), "en")
+
+
+def _format_period_for_description(period_start: Optional[str], period_end: Optional[str]) -> str:
+    if period_start and period_end:
+        return f"{period_start} to {period_end}"
+    if period_start:
+        return f"from {period_start}"
+    if period_end:
+        return f"through {period_end}"
+    return "the selected reporting period"
+
 
 # Map section types to existing Copilot intents for model selection
 SECTION_TO_INTENT = {
@@ -66,56 +95,105 @@ class AIReportService:
         self.fallback_handler = FallbackHandler()
         self.audit_logger = AuditLogger()
 
-    def generate_report_definition_from_prompt(self, prompt: str) -> Dict[str, Any]:
+    def generate_report_definition_from_prompt(
+        self,
+        prompt: str,
+        title: Optional[str] = None,
+        architect_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
         """
         Act as a Financial Reporting Architect: parse prompt into a structured JSON report definition.
         
         The user prompt is strictly an instruction for report layout/sections,
         and MUST NOT be copied into titles or text section contents.
+        
+        Args:
+            prompt: The user's objective/instruction for the report
+            title: User-controlled report title
+            architect_context: Structured generation contract
+            
+        Returns:
+            Dictionary with name, description, and sections
         """
-        import json
-        import re
-        from app.modules.reporting.services.report_section_mapper import SectionNormalizer
+        contract = architect_context or {}
+        report_title = title or contract.get("report_title") or "Financial Report"
+        language = _normalize_language(contract.get("language"))
+        audience = contract.get("audience") or "Finance Team"
+        period_start = contract.get("period_start")
+        period_end = contract.get("period_end")
+        additional_instructions = (contract.get("additional_instructions") or "").strip()
+
+        logger.info("[AI_ARCHITECT] ====== Begin prompt-to-definition generation ======")
+        logger.info("[AI_ARCHITECT] Input objective received (len=%d)", len(prompt))
+        logger.info("[AI_ARCHITECT] User title: %s", report_title)
 
         system_prompt = (
             "You are a Senior Financial Reporting Architect.\n"
-            "Your task is NOT to write report body paragraphs.\n"
-            "Your task is to design the report structure as valid JSON matching the schema.\n\n"
+            "Transform a structured report configuration into a structured report definition.\n"
+            "The user configuration is instructions and metadata, not report content.\n"
             "CRITICAL RULES:\n"
-            "1. NEVER repeat user instructions, summarize the user prompt, or put user requirements inside text section contents.\n"
-            "2. ALWAYS return JSON containing 'name', 'description', and 'sections'.\n"
-            "3. Each item in 'sections' MUST have 'type' and 'config' keys.\n"
-            "4. Allowed section types ONLY: 'title', 'text', 'kpi', 'chart', 'table', 'ai_insight', 'page_break', 'image', 'recommendation'.\n"
-            "5. Map user requests into appropriate sections:\n"
-            "   - 'Revenue KPIs' -> type: 'kpi', config: { 'title': 'Revenue KPIs', 'data_source': 'revenue' }\n"
-            "   - 'Reconciliation Trend chart' -> type: 'chart', config: { 'title': 'Reconciliation Trend', 'chart_type': 'reconciliation_trend' }\n"
-            "   - 'ERP Transactions table' -> type: 'table', config: { 'title': 'ERP Transactions', 'data_source': 'erp_transactions' }\n"
-            "   - 'AI insights / analysis' -> type: 'ai_insight', config: { 'insight_type': 'trend_analysis' }\n"
-            "   - 'Image section' -> type: 'image', config: { 'url': '...', 'caption': 'Overview' }\n\n"
-            "Example JSON output:\n"
-            "{\n"
-            '  "name": "Q2 Financial Performance Review",\n'
-            '  "description": "Executive Financial Analysis",\n'
-            '  "sections": [\n'
-            '    { "type": "text", "config": { "title": "Executive Summary", "content": "This report summarizes financial performance for the period." } },\n'
-            '    { "type": "kpi", "config": { "title": "Revenue KPIs", "data_source": "revenue" } },\n'
-            '    { "type": "chart", "config": { "title": "Reconciliation Trend", "chart_type": "reconciliation_trend" } },\n'
-            '    { "type": "table", "config": { "title": "ERP Transactions", "data_source": "erp_transactions" } },\n'
-            '    { "type": "ai_insight", "config": { "insight_type": "trend_analysis" } }\n'
-            '  ]\n'
-            "}"
+            "1. Return ONLY valid JSON.\n"
+            "2. Never copy/quote user instructions or configuration into the report content.\n"
+            "3. Never use instruction-oriented phrases like: 'Based on your request', 'The user requested', 'Create a report'.\n"
+            "4. The report title is user-controlled and MUST NOT be rewritten.\n"
+            "5. Generate all human-readable content in the requested language.\n"
+            "6. Audience must control tone/detail/section depth.\n"
+            "7. Reporting period controls data scope.\n"
+            "8. Additional instructions influence design but must never appear verbatim.\n"
+            "9. Never invent financial values.\n"
+            "10. Use only these section types: 'title', 'text', 'kpi', 'chart', 'table', 'ai_insight', 'page_break', 'image', 'recommendation'.\n"
+            "11. Return 4-8 sections with a professional flow.\n"
+            "OUTPUT SCHEMA:\n"
+            '{"description":"Short business report description","sections":[{"type":"text","config":{"title":"...","content":"..."}},{"type":"kpi","config":{"title":"...","data_source":"revenue"}}]}'
         )
 
-        user_instruction = f"Design a financial report structure based on this request: {prompt}"
+        contract_payload = {
+            "report_title": report_title,
+            "objective": prompt,
+            "audience": audience,
+            "language": language,
+            "period_start": period_start,
+            "period_end": period_end,
+            "additional_instructions": additional_instructions,
+            "available_data_sources": [
+                "erp_transactions",
+                "reconciliation_records",
+                "anomaly_records",
+                "expense_records",
+                "revenue_kpis",
+                "cash_flow_kpis",
+            ],
+            "report_builder_capabilities": [
+                "section_types: title,text,kpi,chart,table,ai_insight,recommendation,image,page_break",
+                "kpi data sources are computed by analytics service",
+                "charts and tables are resolved from analytics engines",
+                "pdf renderer consumes structured definition + resolved data",
+            ],
+        }
+        user_instruction = "Design a structured financial report architecture from this JSON contract:\n" + json.dumps(
+            contract_payload, ensure_ascii=False
+        )
 
         try:
+            logger.info("[AI_ARCHITECT] Calling LLM generate_answer (intent=financial_analysis, max_tokens=900)")
+            
+            # Call with reduced max_tokens for faster JSON generation
             result = generate_answer(
                 prompt=user_instruction,
                 system_prompt=system_prompt,
-                max_tokens=1000,
+                max_tokens=900,
                 intent="financial_analysis",
             )
+            
             raw_answer = result.get("answer", "").strip()
+            logger.info(
+                "[AI_ARCHITECT] LLM response received | model=%s | raw_answer_len=%d | fallback_used=%s | response_time=%ss",
+                result.get("model", "unknown"),
+                len(raw_answer),
+                result.get("fallback_used", False),
+                result.get("response_time", 0),
+            )
+            logger.info("[AI_ARCHITECT] Raw LLM answer (first 500 chars): %s", raw_answer[:500])
 
             # Clean JSON code fences
             fenced = re.search(r"```(?:json)?\s*\n?(.*?)\n?\s*```", raw_answer, re.DOTALL)
@@ -123,79 +201,246 @@ class AIReportService:
                 raw_answer = fenced.group(1).strip()
             else:
                 raw_answer = raw_answer.strip()
+            logger.info("[AI_ARCHITECT] JSON code fences cleaned, raw_answer_len=%d", len(raw_answer))
 
             # Parse JSON
             raw_def = json.loads(raw_answer)
-            name = raw_def.get("name") or "Executive Financial Report"
-            description = raw_def.get("description") or "AI-generated financial report structure"
+            
+            # User title is authoritative
+            name = report_title
+            description = raw_def.get("description") or f"Executive financial analysis for {_format_period_for_description(period_start, period_end)}."
             raw_sections = raw_def.get("sections", [])
+            
+            raw_section_types = [sec.get("type") for sec in raw_sections if isinstance(sec, dict)]
+            logger.info(
+                "[AI_ARCHITECT] Parsed raw definition | name=%s | description=%s | raw_section_count=%d | raw_section_types=%s",
+                name,
+                description,
+                len(raw_sections),
+                raw_section_types,
+            )
 
             # Normalize sections through SectionNormalizer
+            from app.modules.reporting.services.report_section_mapper import SectionNormalizer
             norm_sections = SectionNormalizer.normalize_sections(raw_sections)
+            norm_section_types = [sec.get("type") for sec in norm_sections if isinstance(sec, dict)]
+            logger.info(
+                "[AI_ARCHITECT] Sections normalized | count=%d | types=%s",
+                len(norm_sections),
+                norm_section_types,
+            )
 
             definition = {
                 "name": name,
                 "description": description,
                 "sections": norm_sections,
+                "report_context": {
+                    "report_title": report_title,
+                    "objective": prompt,
+                    "audience": audience,
+                    "language": language,
+                    "period_start": period_start,
+                    "period_end": period_end,
+                    "additional_instructions": additional_instructions,
+                },
+                "_generation": {
+                    "generation_mode": "llm",
+                    "ai_generated": True,
+                    "fallback_used": bool(result.get("fallback_used", False)),
+                    "model": result.get("model", "unknown"),
+                    "response_time": result.get("response_time", 0),
+                },
             }
 
             # Validate definition against schema and prompt echo
-            val_res = self.validators.validate_ai_report_definition(definition, original_prompt=prompt)
+            val_res = self.validators.validate_ai_report_definition(
+                definition,
+                original_prompt=prompt,
+                architect_context=contract_payload,
+            )
+            logger.info(
+                "[AI_ARCHITECT] Definition validation | is_valid=%s | errors=%s | warnings=%s | corrected=%s",
+                val_res.is_valid,
+                val_res.errors,
+                val_res.warnings,
+                val_res.corrected,
+            )
+            
             if not val_res.is_valid:
                 logger.warning(f"[AI_BUILDER] Validation errors found in architect definition: {val_res.errors}")
+                # Try to fix common issues
+                definition["name"] = report_title
+                if not definition.get("sections"):
+                    definition["sections"] = self._generate_heuristic_sections(prompt, language=language)
 
+            logger.info(
+                "[AI_ARCHITECT] Final definition | name=%s | description=%s | section_count=%d | section_types=%s",
+                definition["name"],
+                definition["description"],
+                len(definition["sections"]),
+                [sec.get("type") for sec in definition["sections"]],
+            )
+            logger.info("[AI_ARCHITECT] ====== End prompt-to-definition generation ======")
             return definition
 
+        except json.JSONDecodeError as exc:
+            logger.warning(f"[AI_BUILDER] JSON parsing failed ({exc}) — building heuristic fallback definition")
+            logger.info("[AI_ARCHITECT] Building intelligent heuristic fallback from prompt keywords")
+            return self._generate_intelligent_fallback(
+                prompt,
+                title=report_title,
+                language=language,
+                context=contract_payload,
+                fallback_reason=f"JSON parsing failed: {exc}",
+            )
+            
         except Exception as exc:
             logger.warning(f"[AI_BUILDER] AI Report Architect generation failed ({exc}) — building heuristic fallback definition")
-            # Fallback heuristic normalization directly from prompt
-            fallback_sections = []
-            prompt_low = prompt.lower()
+            logger.info("[AI_ARCHITECT] Building intelligent heuristic fallback from prompt keywords")
+            return self._generate_intelligent_fallback(
+                prompt,
+                title=report_title,
+                language=language,
+                context=contract_payload,
+                fallback_reason=str(exc),
+            )
 
-            fallback_sections.append({
-                "type": "text",
-                "config": {
-                    "title": "Executive Summary",
-                    "content": "This executive report summarizes overall financial performance, transaction metrics, and key analytical highlights.",
-                },
-            })
-
-            if "kpi" in prompt_low or "revenue" in prompt_low or "metric" in prompt_low:
-                fallback_sections.append({
-                    "type": "kpi",
-                    "config": {"title": "Key Metrics", "data_source": "revenue"},
-                })
-
-            if "chart" in prompt_low or "trend" in prompt_low or "reconciliation" in prompt_low:
-                fallback_sections.append({
-                    "type": "chart",
-                    "config": {"title": "Reconciliation Trend", "chart_type": "reconciliation_trend"},
-                })
-
-            if "table" in prompt_low or "transaction" in prompt_low or "erp" in prompt_low:
-                fallback_sections.append({
-                    "type": "table",
-                    "config": {
-                        "title": "ERP Transactions",
-                        "data_source": "erp_transactions",
-                        "visible_columns": ["invoice_id", "supplier", "invoice_date", "due_date", "amount", "currency", "status"],
-                        "limit": 20,
-                    },
-                })
-
-            if "insight" in prompt_low or "ai" in prompt_low or "analysis" in prompt_low:
-                fallback_sections.append({
-                    "type": "ai_insight",
-                    "config": {"title": "AI Financial Insights", "insight_type": "trend_analysis"},
-                })
-
-            norm_sections = SectionNormalizer.normalize_sections(fallback_sections)
-            return {
-                "name": "Financial Performance Report",
-                "description": "Executive Financial Analysis",
-                "sections": norm_sections,
+    def _generate_heuristic_sections(self, prompt: str, language: str = "en") -> List[Dict[str, Any]]:
+        """Generate sections based on prompt keywords (used as fallback or enhancement)."""
+        sections = []
+        prompt_lower = prompt.lower()
+        localized = {
+            "en": {
+                "executive_summary": "Executive Summary",
+                "kpis": "Key Performance Indicators",
+                "trends": "Performance Trends",
+                "transactions": "Transaction Overview",
+                "risk": "Risk Assessment & Analysis",
+                "recommendations": "Strategic Recommendations",
+            },
+            "fr": {
+                "executive_summary": "Résumé exécutif",
+                "kpis": "Indicateurs clés de performance",
+                "trends": "Tendances de performance",
+                "transactions": "Aperçu des transactions",
+                "risk": "Évaluation des risques",
+                "recommendations": "Recommandations stratégiques",
+            },
+            "ar": {
+                "executive_summary": "الملخص التنفيذي",
+                "kpis": "مؤشرات الأداء الرئيسية",
+                "trends": "اتجاهات الأداء",
+                "transactions": "نظرة عامة على المعاملات",
+                "risk": "تقييم المخاطر",
+                "recommendations": "توصيات استراتيجية",
+            },
+        }.get(language, {})
+        
+        # Always include executive summary
+        sections.append({
+            "type": "text",
+            "config": {
+                "title": localized.get("executive_summary", "Executive Summary"),
+                "content": "This report provides a concise financial analysis and management-oriented overview."
             }
+        })
+        
+        # Check for KPIs/metrics
+        if any(word in prompt_lower for word in ['kpi', 'metric', 'performance', 'revenue', 'sales', 'growth']):
+            sections.append({
+                "type": "kpi",
+                "config": {"title": localized.get("kpis", "Key Performance Indicators"), "data_source": "revenue"}
+            })
+        
+        # Check for trends/charts
+        if any(word in prompt_lower for word in ['trend', 'chart', 'graph', 'visualization', 'reconciliation']):
+            sections.append({
+                "type": "chart",
+                "config": {"title": localized.get("trends", "Performance Trends"), "chart_type": "reconciliation_trend"}
+            })
+        
+        # Check for transactions/data
+        if any(word in prompt_lower for word in ['transaction', 'erp', 'data', 'table', 'list']):
+            sections.append({
+                "type": "table",
+                "config": {
+                    "title": localized.get("transactions", "Transaction Overview"),
+                    "data_source": "erp_transactions",
+                    "visible_columns": ["invoice_id", "supplier", "invoice_date", "due_date", "amount", "currency", "status"],
+                    "limit": 20
+                }
+            })
+        
+        # Check for risk/operational
+        if any(word in prompt_lower for word in ['risk', 'operational', 'compliance', 'audit']):
+            sections.append({
+                "type": "ai_insight",
+                "config": {"title": localized.get("risk", "Risk Assessment & Analysis"), "insight_type": "financial_analysis"}
+            })
+        
+        # Always include recommendations
+        sections.append({
+            "type": "recommendation",
+            "config": {"title": localized.get("recommendations", "Strategic Recommendations")}
+        })
+        
+        return sections
 
+    def _generate_intelligent_fallback(
+        self,
+        prompt: str,
+        title: Optional[str] = None,
+        language: str = "en",
+        context: Optional[Dict[str, Any]] = None,
+        fallback_reason: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Generate an intelligent fallback definition based on prompt analysis."""
+        sections = self._generate_heuristic_sections(prompt, language=language)
+        
+        # Try to extract a better title from the prompt
+        if not title:
+            # Look for common patterns
+            title_patterns = [
+                r'(?:report|analysis|review|assessment)\s+(?:on|of|for)\s+([^.]+)',
+                r'([^.]+)\s+(?:report|analysis|review|assessment)',
+            ]
+            for pattern in title_patterns:
+                match = re.search(pattern, prompt, re.IGNORECASE)
+                if match:
+                    title = match.group(1).strip().title()
+                    break
+            
+            if not title:
+                # Use first 50 characters of prompt as title
+                title = prompt[:50].strip()
+                if len(title) < 10:
+                    title = "Financial Performance Report"
+        
+        # Normalize sections
+        from app.modules.reporting.services.report_section_mapper import SectionNormalizer
+        norm_sections = SectionNormalizer.normalize_sections(sections)
+        
+        return {
+            "name": title or "Financial Performance Report",
+            "description": "Executive financial analysis generated from fallback architecture.",
+            "sections": norm_sections,
+            "report_context": {
+                "report_title": title or "Financial Performance Report",
+                "objective": prompt,
+                "audience": (context or {}).get("audience", "Finance Team"),
+                "language": language,
+                "period_start": (context or {}).get("period_start"),
+                "period_end": (context or {}).get("period_end"),
+                "additional_instructions": (context or {}).get("additional_instructions"),
+            },
+            "_generation": {
+                "generation_mode": "fallback",
+                "ai_generated": False,
+                "fallback_used": True,
+                "model": "fallback",
+                "fallback_reason": fallback_reason or "AI generation failed",
+            },
+        }
 
     def generate_report_sections(
         self,
@@ -357,6 +602,7 @@ class AIReportService:
         try:
             result = generate_answer(
                 prompt=user_prompt,
+                system_prompt=system_prompt,
                 max_tokens=max_tokens,
                 intent=intent,
                 context=str(context),
@@ -380,6 +626,7 @@ class AIReportService:
                 )
                 correction_result = generate_answer(
                     prompt=correction_prompt,
+                    system_prompt=system_prompt,
                     max_tokens=max_tokens,
                     intent=intent,
                     context=str(context),
@@ -428,32 +675,60 @@ class AIReportService:
     ) -> str:
         """Build the appropriate prompt for a section type."""
         if section_type == "executive_summary":
-            return build_executive_summary_prompt(context, language)
+            base_prompt = build_executive_summary_prompt(context, language)
         elif section_type == "kpi_explanation":
             # Get first KPI for explanation
             kpis = context.get("kpis", {})
             if kpis:
                 kpi_name = list(kpis.keys())[0]
                 kpi_data = kpis[kpi_name]
-                return build_kpi_explanation_prompt(kpi_name, kpi_data, language)
-            return build_kpi_explanation_prompt("revenue", {}, language)
+                base_prompt = build_kpi_explanation_prompt(kpi_name, kpi_data, language)
+            else:
+                base_prompt = build_kpi_explanation_prompt("revenue", {}, language)
         elif section_type == "trend_analysis":
             trends = context.get("trends", {})
             if trends:
                 metric_name = list(trends.keys())[0]
                 trend_data = trends[metric_name]
-                return build_trend_analysis_prompt(metric_name, trend_data, language)
-            return build_trend_analysis_prompt("revenue", {}, language)
+                base_prompt = build_trend_analysis_prompt(metric_name, trend_data, language)
+            else:
+                base_prompt = build_trend_analysis_prompt("revenue", {}, language)
         elif section_type == "anomaly_explanation":
             anomalies = context.get("anomalies", {})
-            return build_anomaly_explanation_prompt(anomalies, language)
+            base_prompt = build_anomaly_explanation_prompt(anomalies, language)
         elif section_type == "recommendations":
-            return build_recommendations_prompt(context, language)
+            base_prompt = build_recommendations_prompt(context, language)
         elif section_type == "financial_outlook":
-            return build_financial_outlook_prompt(context, language)
+            base_prompt = build_financial_outlook_prompt(context, language)
         else:
             logger.warning("Unknown section type: %s", section_type)
-            return build_executive_summary_prompt(context, language)
+            base_prompt = build_executive_summary_prompt(context, language)
+
+        # Append the full generation context contract so the LLM knows the
+        # audience, objective, additional instructions, and reporting period.
+        # These are instructions/metadata, NOT report content — never echo them.
+        period = context.get("period", {}) or {}
+        period_from = period.get("from") or context.get("date_from")
+        period_to = period.get("to") or context.get("date_to")
+        audience = context.get("audience") or "Finance Team"
+        objective = (context.get("objective") or "").strip()
+        additional_instructions = (context.get("additional_instructions") or "").strip()
+        report_title = context.get("report_title") or ""
+
+        contract_parts = ["\n\nGENERATION CONTEXT (instructions, not report content):"]
+        contract_parts.append(f"- Generate all content in language: {language}.")
+        contract_parts.append(f"- Target audience: {audience}. Adjust tone, detail depth, KPI selection, terminology, and analytical focus accordingly.")
+        if period_from or period_to:
+            contract_parts.append(f"- Reporting period: {period_from} to {period_to}. Analyse data ONLY within this period unless explicitly asked for historical comparison.")
+        if report_title:
+            contract_parts.append(f"- Report title: {report_title}")
+        if objective:
+            contract_parts.append(f"- Objective: {objective}")
+        if additional_instructions:
+            contract_parts.append(f"- Additional instructions: {additional_instructions}")
+        contract_parts.append("- Never echo instructions verbatim. Never invent financial values. Base analysis only on the provided data.")
+
+        return base_prompt + "\n".join(contract_parts)
 
     def generate_single_section(
         self,

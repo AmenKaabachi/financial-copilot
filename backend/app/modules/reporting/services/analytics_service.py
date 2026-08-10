@@ -181,8 +181,21 @@ class AnalyticsService:
         client = get_supabase_client()
         table_map = {
             "reconciliations": "reconciliations",
+            "reconciliation_records": "reconciliations",
             "anomalies": "anomalies",
+            "anomaly_records": "anomalies",
             "erp_transactions": "erp_transactions",
+            "expense_records": "bank_transactions",
+            "bank_transactions": "bank_transactions",
+        }
+        date_field_map = {
+            "reconciliations": "created_at",
+            "reconciliation_records": "created_at",
+            "anomalies": "created_at",
+            "anomaly_records": "created_at",
+            "erp_transactions": "invoice_date",
+            "expense_records": "date",
+            "bank_transactions": "date",
         }
         table_name = table_map.get(data_source)
         if not table_name:
@@ -190,10 +203,11 @@ class AnalyticsService:
 
         try:
             query = client.table(table_name).select("*").limit(limit)
+            date_field = date_field_map.get(data_source, "created_at")
             if date_from:
-                query = query.gte("created_at", date_from)
+                query = query.gte(date_field, date_from)
             if date_to:
-                query = query.lte("created_at", date_to)
+                query = query.lte(date_field, date_to)
             result = query.execute()
             return result.data or []
         except Exception as exc:

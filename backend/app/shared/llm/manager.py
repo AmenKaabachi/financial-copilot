@@ -35,11 +35,10 @@ FAILURE_THRESHOLD = 3
 MODEL_COOLDOWN_SECONDS = 60
 RETRYABLE_STATUS_CODES = {500, 502, 503, 504}
 
-# Fast definitional questions ("what is X") get a tighter budget.
-# Complex financial analysis can use the full budget.
+# Increased timeouts for better reliability with free models
 FAST_REQUEST_BUDGET_SECONDS = 12.0
-COMPLEX_REQUEST_BUDGET_SECONDS = 25.0
-REQUEST_BUDGET_SECONDS = 30.0
+COMPLEX_REQUEST_BUDGET_SECONDS = 45.0  # Increased from 25
+REQUEST_BUDGET_SECONDS = 60.0  # Increased from 30
 
 FAST_INTENTS = {"general_knowledge", "financial_general", "greeting", "goodbye", "thanks", "small_talk", "assistant_identity", "assistant_capabilities"}
 
@@ -964,7 +963,7 @@ def stream_answer(prompt: str, max_tokens: int = 2000, intent: str = "unknown", 
     yield ("", {"error": True, "message": "AI service temporarily unavailable. All models failed."})
 
 
-def generate_answer(prompt: str, max_tokens: int = 2000, intent: str = "unknown", context: str = "") -> GenerateAnswerResult:
+def generate_answer(prompt: str, max_tokens: int = 2000, intent: str = "unknown", context: str = "", system_prompt: Optional[str] = None) -> GenerateAnswerResult:
     start_time = time.perf_counter()
     total_attempts = 0
     model_errors: List[str] = []
@@ -975,7 +974,10 @@ def generate_answer(prompt: str, max_tokens: int = 2000, intent: str = "unknown"
     # Use tighter budget for simple definitional questions
     budget = FAST_REQUEST_BUDGET_SECONDS if intent in FAST_INTENTS else COMPLEX_REQUEST_BUDGET_SECONDS
 
-    system_prompt = build_system_prompt(context, intent=intent)
+    # Allow a custom system prompt to be supplied (e.g. AI Report Architect).
+    # Fall back to the built-in intent-based system prompt when not provided.
+    if system_prompt is None:
+        system_prompt = build_system_prompt(context, intent=intent)
 
     cached = _response_cache.get(prompt, max_tokens, intent)
     if cached is not None:

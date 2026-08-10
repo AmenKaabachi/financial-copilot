@@ -91,6 +91,13 @@ class ReportGenerationRequest(BaseModel):
     language: str = Field(default="en", description="Language: en, fr, ar")
     user_preferences: Optional[Dict[str, Any]] = Field(default_factory=dict, description="User preferences for generation")
     business_objectives: Optional[List[str]] = Field(None, description="Business objectives to focus on")
+    # --- Report generation context (propagated end-to-end) ---
+    period_start: Optional[str] = Field(None, description="Reporting period start (ISO format)")
+    period_end: Optional[str] = Field(None, description="Reporting period end (ISO format)")
+    audience: Optional[str] = Field(None, description="Target audience (e.g. CFO, Finance Team)")
+    objective: Optional[str] = Field(None, description="Business objective / generation instruction")
+    additional_instructions: Optional[str] = Field(None, description="Additional AI generation instructions")
+    report_title: Optional[str] = Field(None, description="User-controlled report title")
 
 
 class ValidationResult(BaseModel):

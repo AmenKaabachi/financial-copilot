@@ -335,7 +335,11 @@ class ReportValidators:
         return parsed, schema_validation
 
     @staticmethod
-    def validate_ai_report_definition(definition: Dict[str, Any], original_prompt: str = "") -> ValidationResult:
+    def validate_ai_report_definition(
+        definition: Dict[str, Any],
+        original_prompt: str = "",
+        architect_context: Optional[Dict[str, Any]] = None,
+    ) -> ValidationResult:
         """
         Validate an AI-generated report definition against schema and detect prompt-echoing.
         """
@@ -353,7 +357,36 @@ class ReportValidators:
 
         errors = []
         warnings = []
+        architect_context = architect_context or {}
         prompt_words = set(re.findall(r"\w+", original_prompt.lower())) if original_prompt else set()
+        forbidden_phrases = (
+            "based on your request",
+            "the user requested",
+            "create an executive report",
+            "do not copy",
+            "generate only",
+            "additional instructions",
+        )
+
+        # Title preservation: user title is authoritative
+        required_title = (architect_context.get("report_title") or "").strip()
+        if required_title and definition.get("name") != required_title:
+            errors.append("Report title must match the exact user-provided title")
+
+        # Period validity
+        period_start = architect_context.get("period_start")
+        period_end = architect_context.get("period_end")
+        if period_start and period_end and period_start > period_end:
+            errors.append("Invalid reporting period: period_start must be <= period_end")
+
+        # Language presence
+        if architect_context.get("language") and not definition.get("report_context", {}).get("language"):
+            warnings.append("Missing report_context.language in generated definition")
+
+        description = str(definition.get("description", "") or "")
+        lowered_description = description.lower()
+        if any(phrase in lowered_description for phrase in forbidden_phrases):
+            errors.append("Report description contains prompt/instruction leakage")
 
         sections = definition.get("sections", [])
         for idx, sec in enumerate(sections):
@@ -380,6 +413,11 @@ class ReportValidators:
                     warnings.append(f"Section index {idx} ({sec_type}) title echoes original prompt instruction")
                     config["title"] = sec_type.replace("_", " ").title()
 
+            if any(phrase in content for phrase in forbidden_phrases):
+                errors.append(f"Section index {idx} ({sec_type}) content contains instruction leakage")
+            if any(phrase in title for phrase in forbidden_phrases):
+                errors.append(f"Section index {idx} ({sec_type}) title contains instruction leakage")
+
         return ValidationResult(
             is_valid=len(errors) == 0,
             errors=errors,
@@ -387,4 +425,3 @@ class ReportValidators:
             corrected=len(warnings) > 0,
             corrected_fields=[],
         )
-

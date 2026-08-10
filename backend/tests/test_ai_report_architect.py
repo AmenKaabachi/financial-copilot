@@ -6,6 +6,7 @@ Tests cover:
     Test 3: Section Normalizer (enriching data sources, chart types, visible_columns)
     Test 4: Strict Schema Validation (rejecting invalid section types)
     Test 5: Full ReportService structure generation with [AI_BUILDER] logging
+    Test 6: Different prompts produce different report structures
 """
 
 import os
@@ -118,6 +119,7 @@ class TestAIReportArchitect(unittest.TestCase):
     def test_4_e2e_prompt_architect(self, mock_llm):
         """Test full prompt parsing produces structured JSON without copying user prompt."""
         user_prompt = "Create Q2 Financial Performance Review. Include Revenue KPIs, Reconciliation Trend chart, ERP Transactions table, AI insights."
+        report_title = "Q2 Financial Performance Review"
         
         # Simulate LLM Report Architect returning clean JSON structure
         mock_llm.return_value = {
@@ -137,9 +139,22 @@ class TestAIReportArchitect(unittest.TestCase):
         }
 
         ai_service = AIReportService()
-        definition = ai_service.generate_report_definition_from_prompt(user_prompt)
+        definition = ai_service.generate_report_definition_from_prompt(
+            user_prompt,
+            title=report_title,
+            architect_context={
+                "report_title": report_title,
+                "objective": user_prompt,
+                "audience": "CFO / Executive Management",
+                "language": "en",
+                "period_start": "2026-04-01",
+                "period_end": "2026-06-30",
+                "additional_instructions": "",
+            },
+        )
 
-        self.assertEqual(definition["name"], "Q2 Financial Performance Review")
+        # User title is authoritative
+        self.assertEqual(definition["name"], report_title)
         sections = definition["sections"]
         sec_types = [s["type"] for s in sections]
 
@@ -153,6 +168,18 @@ class TestAIReportArchitect(unittest.TestCase):
             content = sec.get("config", {}).get("content", "")
             self.assertNotIn("Create Q2 Financial Performance Review. Include Revenue KPIs", content)
 
+        # Generation metadata must indicate real LLM was used
+        self.assertTrue(definition["_generation"]["ai_generated"])
+        self.assertFalse(definition["_generation"]["fallback_used"])
+
+        # Report context must preserve title/audience/language/period
+        rc = definition["report_context"]
+        self.assertEqual(rc["report_title"], report_title)
+        self.assertEqual(rc["audience"], "CFO / Executive Management")
+        self.assertEqual(rc["language"], "en")
+        self.assertEqual(rc["period_start"], "2026-04-01")
+        self.assertEqual(rc["period_end"], "2026-06-30")
+
     # ------------------------------------------------------------------
     # Test 5: Full ReportService Structure Generation & Debug Payload
     # ------------------------------------------------------------------
@@ -160,7 +187,8 @@ class TestAIReportArchitect(unittest.TestCase):
     @patch("app.modules.reporting.services.ai_report_service.generate_answer")
     def test_5_report_service_structure_gen(self, mock_llm):
         """Test ReportService.generate_ai_report_structure returns debug_info for frontend visibility."""
-        user_prompt = "Create Q2 Financial Performance Review"
+        report_title = "Q2 Financial Performance Review"
+        user_prompt = "Analyze revenue growth, profitability, and cash flow for senior management."
         mock_llm.return_value = {
             "answer": """{
               "name": "Q2 Financial Review",
@@ -171,12 +199,137 @@ class TestAIReportArchitect(unittest.TestCase):
             }"""
         }
 
-        result = ReportService.generate_ai_report_structure({"objective": user_prompt})
+        result = ReportService.generate_ai_report_structure({
+            "title": report_title,
+            "objective": user_prompt,
+            "audience": "CFO / Executive Management",
+            "language": "English",
+            "period_start": "2026-04-01",
+            "period_end": "2026-06-30",
+            "additional_instructions": "Keep the executive summary under 150 words.",
+        })
         self.assertIsNotNone(result)
-        self.assertEqual(result["title"], "Q2 Financial Review")
+        self.assertEqual(result["title"], report_title)
         self.assertIn("debug_info", result)
-        self.assertEqual(result["debug_info"]["user_prompt"], user_prompt)
-        self.assertIn("kpi", result["debug_info"]["generated_types"])
+
+        di = result["debug_info"]
+        # AI generation attempted and succeeded (LLM was mocked to succeed)
+        self.assertTrue(di["ai_generation_attempted"])
+        self.assertTrue(di["ai_generation_success"])
+        self.assertFalse(di["fallback_used"])
+        self.assertEqual(di["model"], "unknown")  # mocked without model field
+        self.assertEqual(di["language"], "en")
+        self.assertEqual(di["audience"], "CFO / Executive Management")
+        self.assertEqual(di["period_start"], "2026-04-01")
+        self.assertEqual(di["period_end"], "2026-06-30")
+        self.assertIn("kpi", di["sections_generated"])
+
+    # ------------------------------------------------------------------
+    # Test 5B: Fallback is explicitly reported
+    # ------------------------------------------------------------------
+
+    @patch("app.modules.reporting.services.ai_report_service.generate_answer")
+    def test_5b_fallback_is_explicitly_reported(self, mock_llm):
+        """Test that when LLM fails, fallback_used=True and fallback_reason is exposed."""
+        mock_llm.side_effect = Exception("Request exceeded time budget of 45.0s")
+
+        result = ReportService.generate_ai_report_structure({
+            "title": "Q2 Review",
+            "objective": "Analyze revenue growth.",
+            "audience": "CFO",
+            "language": "English",
+            "period_start": "2026-04-01",
+            "period_end": "2026-06-30",
+            "additional_instructions": "",
+        })
+        self.assertIsNotNone(result)
+
+        di = result["debug_info"]
+        self.assertTrue(di["fallback_used"])
+        self.assertFalse(di["ai_generation_success"])
+        self.assertIn("fallback_reason", di)
+        self.assertIn("Request exceeded time budget", di["fallback_reason"])
+
+    # ------------------------------------------------------------------
+    # Test 6: Different prompts produce different report structures
+    # ------------------------------------------------------------------
+
+    @patch("app.modules.reporting.services.ai_report_service.generate_answer")
+    def test_6_different_prompts_produce_different_structures(self, mock_llm):
+        """Test that distinct user prompts yield distinct report structures (section types, titles)."""
+        ai_service = AIReportService()
+
+        # Prompt A: Revenue- and KPI-focused monthly review
+        prompt_a = "Create a monthly revenue performance report with revenue KPIs and comparisons."
+        response_a = {
+            "answer": """```json
+            {
+              "name": "Monthly Revenue Performance",
+              "description": "Revenue-focused monthly review",
+              "sections": [
+                { "type": "kpi", "config": { "title": "Revenue KPIs", "data_source": "revenue" } },
+                { "type": "chart", "config": { "title": "Revenue Trend", "chart_type": "revenue_trend" } },
+                { "type": "text", "config": { "title": "Revenue Analysis", "content": "Summary of revenue performance." } }
+              ]
+            }
+            
+```"""
+        }
+
+        # Prompt B: Expense- and anomaly-focused review
+        prompt_b = "Investigate expense anomalies and reconciliation accuracy for the quarter."
+        response_b = {
+            "answer": """```json
+            {
+              "name": "Expense & Anomaly Investigation",
+              "description": "Expense anomaly and reconciliation review",
+              "sections": [
+                { "type": "kpi", "config": { "title": "Expense KPIs", "data_source": "expenses" } },
+                { "type": "kpi", "config": { "title": "Reconciliation Rate", "data_source": "reconciliation_rate" } },
+                { "type": "table", "config": { "title": "Anomaly Records", "data_source": "anomaly_records" } },
+                { "type": "recommendation", "config": { "title": "Anomaly Mitigation" } }
+              ]
+            }
+            
+```"""
+        }
+
+        mock_llm.side_effect = [response_a, response_b]
+
+        definition_a = ai_service.generate_report_definition_from_prompt(
+            prompt_a,
+            title="Monthly Revenue Performance",
+            architect_context={"report_title": "Monthly Revenue Performance", "objective": prompt_a, "audience": "CFO", "language": "en"},
+        )
+        definition_b = ai_service.generate_report_definition_from_prompt(
+            prompt_b,
+            title="Expense & Anomaly Investigation",
+            architect_context={"report_title": "Expense & Anomaly Investigation", "objective": prompt_b, "audience": "Finance Team", "language": "en"},
+        )
+
+        # Different names should be produced
+        self.assertNotEqual(definition_a["name"], definition_b["name"])
+
+        types_a = [sec["type"] for sec in definition_a["sections"]]
+        types_b = [sec["type"] for sec in definition_b["sections"]]
+
+        # Both generate valid structures
+        self.assertGreater(len(types_a), 0)
+        self.assertGreater(len(types_b), 0)
+
+        # The two prompts must NOT produce identical section structure
+        self.assertNotEqual(types_a, types_b, "Different prompts should yield different section type sequences")
+
+        # Prompt A should contain revenue KPI and chart; Prompt B should contain anomaly table
+        self.assertIn("kpi", types_a)
+        self.assertIn("revenue", [sec.get("config", {}).get("data_source") for sec in definition_a["sections"]])
+        self.assertIn("table", types_b)
+        self.assertIn("anomaly_records", [sec.get("config", {}).get("data_source") for sec in definition_b["sections"]])
+
+        # Section normalization must enrich the chart type (fuzzy "revenue trend" -> canonical "revenue_trend")
+        chart_sections_a = [sec for sec in definition_a["sections"] if sec["type"] == "chart"]
+        self.assertTrue(chart_sections_a)
+        self.assertEqual(chart_sections_a[0].get("config", {}).get("chart_type"), "revenue_trend")
 
 
 if __name__ == "__main__":

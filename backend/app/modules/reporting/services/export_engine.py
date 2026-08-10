@@ -32,53 +32,13 @@ from app.modules.reporting.services.chart_renderer import (
     MATPLOTLIB_AVAILABLE,
 )
 from app.modules.reporting.services.ai_insight_service import AIInsightService
+from app.modules.reporting.services.report_localization import ReportLocalization
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# KPI display labels and formatting
+# KPI display labels and formatting (now localized via ReportLocalization)
 # ---------------------------------------------------------------------------
-KPI_LABELS: Dict[str, str] = {
-    "total_revenue": "Total Revenue",
-    "collected_revenue": "Collected Revenue",
-    "outstanding_revenue": "Outstanding Revenue",
-    "invoice_count": "Total Invoices",
-    "paid_invoice_count": "Paid Invoices",
-    "unpaid_invoice_count": "Unpaid Invoices",
-    "total_expenses": "Total Expenses",
-    "expense_count": "Expense Count",
-    "net_cash_result": "Net Cash Result",
-    "cash_margin": "Cash Margin",
-    "total_inflows": "Total Inflows",
-    "total_outflows": "Total Outflows",
-    "net_cash_flow": "Net Cash Flow",
-    "outstanding_count": "Outstanding Count",
-    "total_outstanding": "Total Outstanding",
-    "average_outstanding": "Average Outstanding",
-    "delayed_count": "Delayed Count",
-    "total_delayed_amount": "Total Delayed Amount",
-    "reconciliation_rate": "Reconciliation Rate",
-    "total_invoices": "Total Invoices",
-    "reconciled_count": "Reconciled Count",
-    "unreconciled_count": "Unreconciled Count",
-    "erp_count": "ERP Count",
-    "bank_count": "Bank Count",
-    "total_count": "Total Count",
-    "erp_volume": "ERP Volume",
-    "bank_volume": "Bank Volume",
-    "total_volume": "Total Volume",
-    "total_anomalies": "Total Anomalies",
-    "high_severity_count": "High Severity",
-    "medium_severity_count": "Medium Severity",
-    "low_severity_count": "Low Severity",
-    "matching_accuracy": "Matching Accuracy",
-    "total_reconciliations": "Total Reconciliations",
-    "matched_count": "Matched Count",
-    "unmatched_count": "Unmatched Count",
-    "pending_count": "Pending Count",
-    "partial_count": "Partial Count",
-}
-
 KPI_FORMATTERS: Dict[str, str] = {
     "total_revenue": "currency",
     "collected_revenue": "currency",
@@ -160,16 +120,48 @@ def _format_kpi_value(key: str, value: Any) -> str:
         return str(value)
 
 
-def _get_kpi_label(key: str) -> str:
-    """Get a human-readable label for a KPI key."""
-    return KPI_LABELS.get(key, key.replace("_", " ").title())
+def _get_kpi_label(key: str, language: str = "en") -> str:
+    """Get a localized human-readable label for a KPI key."""
+    return ReportLocalization.kpi_label(key, language)
 
 
-def _parse_date_range(config: Dict[str, Any]) -> tuple:
-    """Extract date_from and date_to from a section config."""
-    date_from = config.get("date_from") or config.get("analytics_params", {}).get("date_from")
-    date_to = config.get("date_to") or config.get("analytics_params", {}).get("date_to")
+def _parse_date_range(config: Dict[str, Any], report_context: Optional[Dict[str, Any]] = None) -> tuple:
+    """Extract date_from/date_to from section config with report-level period fallback."""
+    report_context = report_context or {}
+    date_from = (
+        config.get("date_from")
+        or config.get("period_start")
+        or config.get("analytics_params", {}).get("date_from")
+        or report_context.get("period_start")
+        or report_context.get("date_from")
+    )
+    date_to = (
+        config.get("date_to")
+        or config.get("period_end")
+        or config.get("analytics_params", {}).get("date_to")
+        or report_context.get("period_end")
+        or report_context.get("date_to")
+    )
     return date_from, date_to
+
+
+def _normalize_language(language: Optional[str]) -> str:
+    if not language:
+        return "en"
+    key = str(language).strip().lower()
+    return {
+        "en": "en",
+        "english": "en",
+        "fr": "fr",
+        "french": "fr",
+        "ar": "ar",
+        "arabic": "ar",
+    }.get(key, "en")
+
+
+def _localize(label_key: str, language: str = "en") -> str:
+    """Localize a label using the ReportLocalization service."""
+    return ReportLocalization.summary_label(label_key, language)
 
 
 class ExportEngine:
@@ -271,11 +263,22 @@ class ExportEngine:
             story.append(Spacer(1, 12))
 
         definition = report_data.get('definition', {})
+        report_context = definition.get("report_context") or report_data.get("report_context") or {}
+        language = _normalize_language(report_context.get("language"))
+        period_start = report_context.get("period_start") or report_context.get("date_from")
+        period_end = report_context.get("period_end") or report_context.get("date_to")
+        if period_start or period_end:
+            if period_start and period_end:
+                period_text = f"{period_start} - {period_end}"
+            else:
+                period_text = period_start or period_end
+            story.append(Paragraph(f"<b>{_localize('reporting_period', language)}:</b> {period_text}", normal_style))
+            story.append(Spacer(1, 10))
         sections = definition.get('sections', []) or report_data.get('sections', [])
 
         if not sections:
             logger.warning("[PDF] No sections found in report definition")
-            story.append(Paragraph("<i>No sections in this report.</i>", normal_style))
+            story.append(Paragraph(f"<i>{_localize('no_sections', language)}</i>", normal_style))
             doc.build(story)
             return
 
@@ -303,7 +306,7 @@ class ExportEngine:
 
             # Render section with partial failure protection
             try:
-                ExportEngine._render_section(section, story, styles, temp_images, doc, counts)
+                ExportEngine._render_section(section, story, styles, temp_images, doc, counts, report_context=report_context)
             except Exception as exc:
                 counts["warnings"] += 1
                 logger.error(f"[EXPORT] Failed to render section {index + 1} type='{sec_type}': {exc}", exc_info=True)
@@ -367,6 +370,7 @@ class ExportEngine:
         temp_images: Optional[List[str]] = None,
         doc: Optional[SimpleDocTemplate] = None,
         counts: Optional[Dict[str, int]] = None,
+        report_context: Optional[Dict[str, Any]] = None,
     ):
         """Dispatch a single section to its appropriate render method."""
         sec_type = section.get('type', 'text')
@@ -382,23 +386,23 @@ class ExportEngine:
         elif sec_type == 'financial_summary':
             if counts is not None:
                 counts['tables'] += 1
-            ExportEngine._render_financial_summary(section, story, styles, doc)
+            ExportEngine._render_financial_summary(section, story, styles, doc, report_context=report_context)
         elif sec_type == 'kpi':
-            ExportEngine._render_kpi(section, story, styles, doc)
+            ExportEngine._render_kpi(section, story, styles, doc, report_context=report_context)
         elif sec_type in ('table', 'pivot'):
             if counts is not None:
                 counts['tables'] += 1
-            ExportEngine._render_table(section, story, styles, doc)
+            ExportEngine._render_table(section, story, styles, doc, report_context=report_context)
         elif sec_type in ('chart', 'trend', 'heatmap'):
             if counts is not None:
                 counts['charts'] += 1
-            ExportEngine._render_chart(section, story, styles, temp_images, doc, counts)
+            ExportEngine._render_chart(section, story, styles, temp_images, doc, counts, report_context=report_context)
         elif sec_type == 'recommendation':
-            ExportEngine._render_recommendation(section, story, styles)
+            ExportEngine._render_recommendation(section, story, styles, report_context=report_context)
         elif sec_type == 'ai_insight':
             if counts is not None:
                 counts['ai_insights'] += 1
-            ExportEngine._render_ai_insight(section, story, styles, doc)
+            ExportEngine._render_ai_insight(section, story, styles, doc, report_context=report_context)
         elif sec_type == 'divider':
             story.append(Spacer(1, 24))
         elif sec_type == 'page_break':
@@ -602,65 +606,74 @@ class ExportEngine:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _render_financial_summary(section: Dict[str, Any], story: List, styles, doc: Optional[SimpleDocTemplate] = None):
+    def _render_financial_summary(
+        section: Dict[str, Any],
+        story: List,
+        styles,
+        doc: Optional[SimpleDocTemplate] = None,
+        report_context: Optional[Dict[str, Any]] = None,
+    ):
         config = section.get('config', {})
         logger.info("[TABLE] Rendering financial_summary section — fetching all KPIs")
-        date_from, date_to = _parse_date_range(config)
+        date_from, date_to = _parse_date_range(config, report_context)
+        language = _normalize_language((report_context or {}).get("language"))
         all_kpis = AnalyticsService.get_all_kpis(date_from=date_from, date_to=date_to)
         logger.info(f"[TABLE] Financial summary data received: {len(all_kpis)} KPI groups")
 
         if not all_kpis:
-            story.append(Paragraph("<i>Financial data unavailable.</i>", styles['Normal']))
+            story.append(Paragraph(f"<i>{ReportLocalization.summary_label('financial_data_unavailable', language)}</i>", styles['Normal']))
             return
 
         heading_style = styles['Heading2']
+        metric_label = ReportLocalization.summary_label("metric", language)
+        value_label = ReportLocalization.summary_label("value", language)
 
         revenue = all_kpis.get("revenue", {})
         if revenue:
-            story.append(Paragraph("Revenue Summary", heading_style))
+            story.append(Paragraph(ReportLocalization.summary_label("revenue_summary", language), heading_style))
             data = [
-                ["Metric", "Value"],
-                ["Total Revenue", _format_kpi_value("total_revenue", revenue.get("total_revenue"))],
-                ["Collected Revenue", _format_kpi_value("collected_revenue", revenue.get("collected_revenue"))],
-                ["Outstanding Revenue", _format_kpi_value("outstanding_revenue", revenue.get("outstanding_revenue"))],
-                ["Paid Invoices", _format_kpi_value("paid_invoice_count", revenue.get("paid_invoice_count"))],
-                ["Unpaid Invoices", _format_kpi_value("unpaid_invoice_count", revenue.get("unpaid_invoice_count"))],
+                [metric_label, value_label],
+                [ReportLocalization.kpi_label("total_revenue", language), _format_kpi_value("total_revenue", revenue.get("total_revenue"))],
+                [ReportLocalization.kpi_label("collected_revenue", language), _format_kpi_value("collected_revenue", revenue.get("collected_revenue"))],
+                [ReportLocalization.kpi_label("outstanding_revenue", language), _format_kpi_value("outstanding_revenue", revenue.get("outstanding_revenue"))],
+                [ReportLocalization.kpi_label("paid_invoice_count", language), _format_kpi_value("paid_invoice_count", revenue.get("paid_invoice_count"))],
+                [ReportLocalization.kpi_label("unpaid_invoice_count", language), _format_kpi_value("unpaid_invoice_count", revenue.get("unpaid_invoice_count"))],
             ]
             ExportEngine._add_styled_table(data, story, doc=doc)
             story.append(Spacer(1, 12))
 
         expenses = all_kpis.get("expenses", {})
         if expenses:
-            story.append(Paragraph("Expenses Summary", heading_style))
+            story.append(Paragraph(ReportLocalization.summary_label("expenses_summary", language), heading_style))
             data = [
-                ["Metric", "Value"],
-                ["Total Expenses", _format_kpi_value("total_expenses", expenses.get("total_expenses"))],
-                ["Expense Count", _format_kpi_value("expense_count", expenses.get("expense_count"))],
+                [metric_label, value_label],
+                [ReportLocalization.kpi_label("total_expenses", language), _format_kpi_value("total_expenses", expenses.get("total_expenses"))],
+                [ReportLocalization.kpi_label("expense_count", language), _format_kpi_value("expense_count", expenses.get("expense_count"))],
             ]
             ExportEngine._add_styled_table(data, story, doc=doc)
             story.append(Spacer(1, 12))
 
         cash_flow = all_kpis.get("cash_flow", {})
         if cash_flow:
-            story.append(Paragraph("Cash Flow Summary", heading_style))
+            story.append(Paragraph(ReportLocalization.summary_label("cash_flow_summary", language), heading_style))
             data = [
-                ["Metric", "Value"],
-                ["Total Inflows", _format_kpi_value("total_inflows", cash_flow.get("total_inflows"))],
-                ["Total Outflows", _format_kpi_value("total_outflows", cash_flow.get("total_outflows"))],
-                ["Net Cash Flow", _format_kpi_value("net_cash_flow", cash_flow.get("net_cash_flow"))],
+                [metric_label, value_label],
+                [ReportLocalization.kpi_label("total_inflows", language), _format_kpi_value("total_inflows", cash_flow.get("total_inflows"))],
+                [ReportLocalization.kpi_label("total_outflows", language), _format_kpi_value("total_outflows", cash_flow.get("total_outflows"))],
+                [ReportLocalization.kpi_label("net_cash_flow", language), _format_kpi_value("net_cash_flow", cash_flow.get("net_cash_flow"))],
             ]
             ExportEngine._add_styled_table(data, story, doc=doc)
             story.append(Spacer(1, 12))
 
         reconciliation = all_kpis.get("reconciliation_rate", {})
         if reconciliation:
-            story.append(Paragraph("Reconciliation Summary", heading_style))
+            story.append(Paragraph(ReportLocalization.summary_label("reconciliation_summary", language), heading_style))
             data = [
-                ["Metric", "Value"],
-                ["Reconciliation Rate", _format_kpi_value("reconciliation_rate", reconciliation.get("reconciliation_rate"))],
-                ["Total Invoices", _format_kpi_value("total_invoices", reconciliation.get("total_invoices"))],
-                ["Reconciled", _format_kpi_value("reconciled_count", reconciliation.get("reconciled_count"))],
-                ["Unreconciled", _format_kpi_value("unreconciled_count", reconciliation.get("unreconciled_count"))],
+                [metric_label, value_label],
+                [ReportLocalization.kpi_label("reconciliation_rate", language), _format_kpi_value("reconciliation_rate", reconciliation.get("reconciliation_rate"))],
+                [ReportLocalization.kpi_label("total_invoices", language), _format_kpi_value("total_invoices", reconciliation.get("total_invoices"))],
+                [ReportLocalization.kpi_label("reconciled_count", language), _format_kpi_value("reconciled_count", reconciliation.get("reconciled_count"))],
+                [ReportLocalization.kpi_label("unreconciled_count", language), _format_kpi_value("unreconciled_count", reconciliation.get("unreconciled_count"))],
             ]
             ExportEngine._add_styled_table(data, story, doc=doc)
             story.append(Spacer(1, 12))
@@ -672,9 +685,16 @@ class ExportEngine:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _render_kpi(section: Dict[str, Any], story: List, styles, doc: Optional[SimpleDocTemplate] = None):
+    def _render_kpi(
+        section: Dict[str, Any],
+        story: List,
+        styles,
+        doc: Optional[SimpleDocTemplate] = None,
+        report_context: Optional[Dict[str, Any]] = None,
+    ):
         config = section.get('config', {})
-        date_from, date_to = _parse_date_range(config)
+        date_from, date_to = _parse_date_range(config, report_context)
+        language = _normalize_language((report_context or {}).get("language"))
 
         resolved_data = ReportDataResolver.resolve(section, date_from, date_to)
 
@@ -692,10 +712,12 @@ class ExportEngine:
             story.append(Paragraph(f"<i>No KPI data for {title}</i>", styles['Normal']))
             return
 
-        table_data = [["Metric", "Value"]]
+        table_data = [
+            [ReportLocalization.summary_label("metric", language), ReportLocalization.summary_label("value", language)]
+        ]
         for key, value in data.items():
             if isinstance(value, (int, float)):
-                table_data.append([_get_kpi_label(key), _format_kpi_value(key, value)])
+                table_data.append([_get_kpi_label(key, language), _format_kpi_value(key, value)])
 
         if len(table_data) > 1:
             story.append(Paragraph(f"<b>{title}</b>", styles['Heading2']))
@@ -707,10 +729,17 @@ class ExportEngine:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _render_table(section: Dict[str, Any], story: List, styles, doc: Optional[SimpleDocTemplate] = None):
+    def _render_table(
+        section: Dict[str, Any],
+        story: List,
+        styles,
+        doc: Optional[SimpleDocTemplate] = None,
+        report_context: Optional[Dict[str, Any]] = None,
+    ):
         """Render multi-page table with technical column auto-hiding, cell wrapping, and repeat headers."""
         config = section.get('config', {})
-        date_from, date_to = _parse_date_range(config)
+        date_from, date_to = _parse_date_range(config, report_context)
+        language = _normalize_language((report_context or {}).get("language"))
 
         resolved_data = ReportDataResolver.resolve(section, date_from, date_to)
 
@@ -723,12 +752,18 @@ class ExportEngine:
 
         title = resolved_data.get("title", config.get("title", "Data Table"))
         rows = resolved_data.get("data", [])
+        total_rows = len(rows) if isinstance(rows, list) else 0
 
-        logger.info(f"[TABLE] Rendering table: '{title}' with {len(rows)} rows")
+        # Apply configured row limit (e.g. config["limit"] = 20)
+        limit = config.get("limit")
+        if limit and isinstance(rows, list):
+            rows = rows[:limit]
+
+        logger.info(f"[TABLE] Rendering table: '{title}' with {len(rows)} rows (total available: {total_rows})")
 
         if not rows:
             story.append(Paragraph(f"<b>{title}</b>", styles['Heading2']))
-            story.append(Paragraph("<i>No data available for this table.</i>", styles['Normal']))
+            story.append(Paragraph(f"<i>{ReportLocalization.summary_label('no_data', language)}</i>", styles['Normal']))
             story.append(Spacer(1, 12))
             return
 
@@ -761,7 +796,8 @@ class ExportEngine:
                 if not display_keys:
                     display_keys = all_keys[:8]
 
-            headers = [key.replace("_", " ").title() for key in display_keys]
+            # Localize table headers
+            headers = [ReportLocalization.field_label(key, language) for key in display_keys]
 
             # Cell styles with automatic text wrapping
             cell_style_left = ParagraphStyle(
@@ -793,7 +829,7 @@ class ExportEngine:
             header_row = [Paragraph(f"<b>{h}</b>", header_style) for h in headers]
             table_data = [header_row]
 
-            for row in rows[:100]:
+            for row in rows:
                 row_data = []
                 for key in display_keys:
                     val = row.get(key, "")
@@ -840,7 +876,7 @@ class ExportEngine:
             story.append(t)
             story.append(Spacer(1, 4))
             story.append(Paragraph(
-                f"<i>Showing {min(len(rows), 100)} of {len(rows)} records</i>",
+                f"<i>{ReportLocalization.showing_records(len(rows), total_rows, language)}</i>",
                 styles['Normal']
             ))
             story.append(Spacer(1, 12))
@@ -858,9 +894,10 @@ class ExportEngine:
         temp_images: Optional[List[str]] = None,
         doc: Optional[SimpleDocTemplate] = None,
         counts: Optional[Dict[str, int]] = None,
+        report_context: Optional[Dict[str, Any]] = None,
     ):
         config = section.get('config', {})
-        date_from, date_to = _parse_date_range(config)
+        date_from, date_to = _parse_date_range(config, report_context)
 
         resolved_data = ReportDataResolver.resolve(section, date_from, date_to)
 
@@ -991,8 +1028,14 @@ class ExportEngine:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _render_recommendation(section: Dict[str, Any], story: List, styles):
+    def _render_recommendation(
+        section: Dict[str, Any],
+        story: List,
+        styles,
+        report_context: Optional[Dict[str, Any]] = None,
+    ):
         config = section.get('config', {})
+        language = _normalize_language((report_context or {}).get("language"))
         content = config.get('content', '')
         recommendations = config.get('recommendations', [])
         if not content and not recommendations:
@@ -1000,7 +1043,7 @@ class ExportEngine:
             return
         normal_style = styles['Normal']
         heading_style = styles['Heading2']
-        story.append(Paragraph("Recommendations", heading_style))
+        story.append(Paragraph(_localize("recommendations", language), heading_style))
         if content:
             content_html = content.replace('\n', '<br/>')
             story.append(Paragraph(content_html, normal_style))
@@ -1023,9 +1066,12 @@ class ExportEngine:
         story: List,
         styles,
         doc: Optional[SimpleDocTemplate] = None,
+        report_context: Optional[Dict[str, Any]] = None,
     ):
         """Render AI Insights inside an executive styled callout box with Markdown heading parsing."""
         config = section.get('config', {})
+        effective_context = report_context or {}
+        language = _normalize_language(effective_context.get("language") or config.get("language"))
         content = config.get('content', '')
         insight_type = config.get('insight_type') or config.get('topic', 'trend_analysis')
 
@@ -1038,7 +1084,7 @@ class ExportEngine:
         if is_placeholder:
             try:
                 logger.info(f"[AI] Generating AI insight with insight_type='{insight_type}'")
-                generated = AIInsightService.generate(section)
+                generated = AIInsightService.generate(section, report_context=effective_context)
                 if generated:
                     content = generated
                     logger.info(f"[AI] AI insight generated ({len(generated)} chars)")
@@ -1050,8 +1096,8 @@ class ExportEngine:
                 content = None
 
         if not content:
-            story.append(Paragraph("<b>AI Insights</b>", styles['Heading2']))
-            story.append(Paragraph("<i>AI insight is temporarily unavailable.</i>", styles['Normal']))
+            story.append(Paragraph(f"<b>{_localize('ai_insights', language)}</b>", styles['Heading2']))
+            story.append(Paragraph(f"<i>{_localize('ai_unavailable', language)}</i>", styles['Normal']))
             story.append(Spacer(1, 12))
             return
 
@@ -1083,7 +1129,7 @@ class ExportEngine:
             textColor=colors.HexColor('#1F2937'),
         )
 
-        box_elements.append(Paragraph("<b>AI Financial Insights</b>", h2_style))
+        box_elements.append(Paragraph(f"<b>{_localize('ai_financial_insights', language)}</b>", h2_style))
         box_elements.append(Spacer(1, 4))
 
         # Markdown Line Parser for Executive Section Formatting
@@ -1202,19 +1248,21 @@ class ExportEngine:
                     "Value": str(content)[:200],
                 })
             elif sec_type == 'table':
+                # Respect the configured limit (config["limit"]) instead of hard-coding 100
+                table_limit = config.get("limit", 50)
                 if component_id:
-                    preview = AnalyticsService.get_component_preview(component_id)
+                    preview = AnalyticsService.get_component_preview(component_id, {"limit": table_limit})
                     if preview and preview.get("data"):
                         rows = preview["data"]
                         if isinstance(rows, list):
-                            for row in rows[:100]:
+                            for row in rows[:table_limit]:
                                 row_copy = {"Section": "Table"}
                                 for k, v in row.items():
                                     row_copy[str(k)] = str(v)[:100] if v is not None else ""
                                 data.append(row_copy)
                 elif config.get("data_source"):
-                    rows = AnalyticsService.get_table_data(config["data_source"])
-                    for row in rows[:100]:
+                    rows = AnalyticsService.get_table_data(config["data_source"], limit=table_limit)
+                    for row in rows[:table_limit]:
                         row_copy = {"Section": "Table"}
                         for k, v in row.items():
                             row_copy[str(k)] = str(v)[:100] if v is not None else ""

@@ -242,7 +242,9 @@ class ReportDataResolver:
         config = section.get("config", {})
         data_source = section.get("data_source") or section.get("analytics_source") or config.get("data_source")
         component_id = config.get("component_id") or section.get("component_id")
-        limit = section.get("limit", 50) or config.get("limit", 50)
+        limit = section.get("limit")
+        if limit is None:
+            limit = config.get("limit", 20)
 
         logger.info(f"[RESOLVER] Resolving table: data_source={data_source}, component_id={component_id}")
 

@@ -32,11 +32,15 @@ class FinancialContextBuilder:
         Returns:
             Structured financial context package ready for LLM consumption
         """
-        date_from = request.get("date_from")
-        date_to = request.get("date_to")
+        date_from = request.get("date_from") or request.get("period_start")
+        date_to = request.get("date_to") or request.get("period_end")
         report_type = request.get("report_type", "monthly_financial")
         language = request.get("language", "en")
         business_objectives = request.get("business_objectives", [])
+        objective = request.get("objective")
+        audience = request.get("audience")
+        additional_instructions = request.get("additional_instructions")
+        report_title = request.get("report_title")
 
         logger.info(
             "Building financial context for report_type=%s, period=%s to %s, language=%s",
@@ -51,6 +55,10 @@ class FinancialContextBuilder:
             },
             "language": language,
             "business_objectives": business_objectives,
+            "objective": objective,
+            "audience": audience,
+            "additional_instructions": additional_instructions,
+            "report_title": report_title,
         }
 
         # Fetch KPIs from AnalyticsService
@@ -182,10 +190,10 @@ class FinancialContextBuilder:
         anomaly_stats = anomaly_stats.get("anomaly_stats", {})
 
         return {
-            "total_count": anomaly_stats.get("total_count", 0),
+            "total_count": anomaly_stats.get("total_count", anomaly_stats.get("total_anomalies", 0)),
             "severity_distribution": anomaly_stats.get("severity_distribution", {}),
             "type_distribution": anomaly_stats.get("type_distribution", {}),
-            "high_severity_count": anomaly_stats.get("severity_distribution", {}).get("high", 0),
+            "high_severity_count": anomaly_stats.get("high_severity_count", anomaly_stats.get("severity_distribution", {}).get("high", 0)),
         }
 
     @staticmethod

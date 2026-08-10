@@ -22,6 +22,48 @@ def _table(table: str):
 
 
 class ReportService:
+    _FORBIDDEN_PROMPT_PHRASES = (
+        "based on your request",
+        "the user requested",
+        "create an executive report",
+        "additional instructions",
+        "generate only",
+        "do not copy",
+    )
+
+    @staticmethod
+    def _normalize_language(language: Optional[str]) -> str:
+        if not language:
+            return "en"
+        value = str(language).strip().lower()
+        mapping = {
+            "english": "en",
+            "en": "en",
+            "french": "fr",
+            "fr": "fr",
+            "arabic": "ar",
+            "ar": "ar",
+        }
+        return mapping.get(value, "en")
+
+    @staticmethod
+    def _sanitize_description(description: str, objective: str, period_start: Optional[str], period_end: Optional[str]) -> str:
+        clean = (description or "").strip()
+        objective_text = (objective or "").strip()
+        if clean and objective_text and clean.lower() == objective_text.lower():
+            clean = ""
+        if any(term in clean.lower() for term in ReportService._FORBIDDEN_PROMPT_PHRASES):
+            clean = ""
+        if not clean:
+            period_text = f"{period_start} to {period_end}" if period_start and period_end else "the selected reporting period"
+            clean = f"Executive assessment of financial performance, reconciliation quality, and operational risk for {period_text}."
+        return clean
+
+    @staticmethod
+    def _validate_period(period_start: Optional[str], period_end: Optional[str]) -> None:
+        if period_start and period_end and period_start > period_end:
+            raise ValueError("period_start must be less than or equal to period_end")
+
     @staticmethod
     def list_reports(
         status: Optional[str] = None,
@@ -202,11 +244,53 @@ class ReportService:
         Does NOT copy the prompt into body text or titles.
         """
         try:
-            prompt = request.get("objective") or request.get("prompt") or request.get("title") or "Financial Report"
-            logger.info(f"[AI_BUILDER] User prompt received: {prompt}")
+            report_title = (request.get("name") or request.get("title") or "").strip()
+            prompt = (request.get("objective") or request.get("prompt") or "").strip()
+            audience = (request.get("audience") or "Finance Team").strip()
+            language = ReportService._normalize_language(request.get("language"))
+            period_start = request.get("period_start")
+            period_end = request.get("period_end")
+            additional_instructions = (request.get("additional_instructions") or "").strip()
+            ReportService._validate_period(period_start, period_end)
+
+            if not report_title:
+                raise ValueError("Report title is required")
+            if not prompt:
+                raise ValueError("Report objective is required")
+
+            architect_context = {
+                "report_title": report_title,
+                "objective": prompt,
+                "audience": audience,
+                "language": language,
+                "period_start": period_start,
+                "period_end": period_end,
+                "additional_instructions": additional_instructions,
+            }
 
             ai_service = AIReportService()
-            definition = ai_service.generate_report_definition_from_prompt(prompt)
+            definition = ai_service.generate_report_definition_from_prompt(
+                prompt=prompt,
+                title=report_title,
+                architect_context=architect_context,
+            )
+
+            definition["name"] = report_title
+            definition["description"] = ReportService._sanitize_description(
+                definition.get("description", ""),
+                prompt,
+                period_start,
+                period_end,
+            )
+            definition["report_context"] = {
+                "report_title": report_title,
+                "objective": prompt,
+                "audience": audience,
+                "language": language,
+                "period_start": period_start,
+                "period_end": period_end,
+                "additional_instructions": additional_instructions,
+            }
 
             sections = definition.get("sections", [])
             section_types = [sec.get("type") for sec in sections if isinstance(sec, dict)]
@@ -226,16 +310,42 @@ class ReportService:
                     "type": sec_type,
                 })
 
+            generation_info = definition.get("_generation", {})
+            ai_generation_attempted = generation_info.get("generation_mode") == "llm" or bool(generation_info.get("model", "unknown") != "fallback")
+            ai_generation_success = bool(generation_info.get("ai_generated", True))
+            fallback_used = bool(generation_info.get("fallback_used", False))
+
+            # Log the full generation context for debugging
+            logger.info("[AI_BUILDER] Reporting period: %s → %s", period_start, period_end)
+            logger.info("[AI_BUILDER] Audience: %s", audience)
+            logger.info("[AI_BUILDER] Language: %s", language)
+            logger.info("[AI_BUILDER] Additional instructions: %s", additional_instructions)
+            logger.info(
+                "[AI_BUILDER] AI generation attempted=%s | success=%s | fallback_used=%s | model=%s",
+                ai_generation_attempted,
+                ai_generation_success,
+                fallback_used,
+                generation_info.get("model", "unknown"),
+            )
+
             return {
-                "title": definition.get("name", "Financial Report"),
+                "title": report_title,
                 "description": definition.get("description", "Executive Financial Analysis"),
                 "structure": structure,
                 "sections": sections,
                 "definition": definition,
                 "debug_info": {
-                    "user_prompt": prompt,
-                    "generated_types": section_types,
-                    "section_count": len(sections),
+                    "ai_generation_attempted": ai_generation_attempted,
+                    "ai_generation_success": ai_generation_success,
+                    "fallback_used": fallback_used,
+                    "fallback_reason": generation_info.get("fallback_reason"),
+                    "generation_mode": generation_info.get("generation_mode", "llm"),
+                    "model": generation_info.get("model", "unknown"),
+                    "language": language,
+                    "audience": audience,
+                    "period_start": period_start,
+                    "period_end": period_end,
+                    "sections_generated": section_types,
                 },
             }
         except Exception as exc:
@@ -254,14 +364,32 @@ class ReportService:
             if not definition.get("sections"):
                 definition["sections"] = sections
 
+            report_context = definition.get("report_context") or data.get("report_context") or {}
+            objective = report_context.get("objective") or data.get("objective") or ""
+            period_start = report_context.get("period_start") or data.get("period_start")
+            period_end = report_context.get("period_end") or data.get("period_end")
+
+            # User-provided report title is authoritative.
+            ai_name = (data.get("name") or data.get("title") or definition.get("name") or "AI Financial Report").strip()
+            definition["name"] = ai_name
+
+            ai_description = ReportService._sanitize_description(
+                definition.get("description") or data.get("description") or "",
+                objective,
+                period_start,
+                period_end,
+            )
+            definition["description"] = ai_description
+            definition["report_context"] = report_context
+
             record = {
-                "name": data.get("name") or data.get("title") or "AI Financial Report",
-                "description": data.get("description", "Executive Financial Analysis"),
+                "name": ai_name,
+                "description": ai_description,
                 "report_type": "ai",
                 "owner_id": data.get("owner_id"),
                 "status": "draft",
                 "creation_method": "AI_GENERATED",
-                "prompt_used": data.get("prompt_used") or data.get("objective"),
+                "prompt_used": data.get("prompt_used") or objective,
                 "report_structure": data.get("report_structure") or data.get("structure", []),
                 "sections": sections,
                 "definition": definition,
@@ -299,15 +427,25 @@ class ReportService:
             Dictionary with generated sections and metadata
         """
         try:
-            # Create request schema
+            # Map period_start/period_end to date_from/date_to for backward compatibility
+            date_from = request.get("date_from") or request.get("period_start")
+            date_to = request.get("date_to") or request.get("period_end")
+
+            # Create request schema with full generation context propagated
             report_request = ReportGenerationRequest(
                 report_type=request.get("report_type", "monthly_financial"),
-                date_from=request.get("date_from"),
-                date_to=request.get("date_to"),
+                date_from=date_from,
+                date_to=date_to,
                 sections=request.get("sections", ["executive_summary", "recommendations"]),
                 language=request.get("language", "en"),
                 user_preferences=request.get("user_preferences", {}),
                 business_objectives=request.get("business_objectives"),
+                period_start=request.get("period_start") or date_from,
+                period_end=request.get("period_end") or date_to,
+                audience=request.get("audience"),
+                objective=request.get("objective"),
+                additional_instructions=request.get("additional_instructions"),
+                report_title=request.get("report_title") or request.get("name") or request.get("title"),
             )
 
             # Use AIReportService to generate content

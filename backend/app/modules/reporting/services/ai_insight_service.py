@@ -46,12 +46,26 @@ INSIGHT_MAX_TOKENS = 800
 DEFAULT_TIMEOUT_SECONDS = int(os.getenv("REPORT_AI_TIMEOUT_SECONDS", "15"))
 
 
+def _normalize_language(language: Optional[str]) -> str:
+    if not language:
+        return "en"
+    key = str(language).strip().lower()
+    return {
+        "en": "en",
+        "english": "en",
+        "fr": "fr",
+        "french": "fr",
+        "ar": "ar",
+        "arabic": "ar",
+    }.get(key, "en")
+
+
 
 class AIInsightService:
     """Thin orchestration layer for AI Insight generation in exported reports."""
 
     @staticmethod
-    def generate(section: Dict[str, Any]) -> Optional[str]:
+    def generate(section: Dict[str, Any], report_context: Optional[Dict[str, Any]] = None) -> Optional[str]:
         """
         Generate a financial insight for an AI Insight report section.
 
@@ -69,6 +83,7 @@ class AIInsightService:
             Generated insight text, or None if generation failed.
         """
         config = section.get("config", {})
+        report_context = report_context or {}
         insight_type = config.get("insight_type") or config.get("topic") or "trend_analysis"
         # The report builder may store a topic field like "cash_flow_analysis" directly
         # on the section, or in config.topic
@@ -91,11 +106,16 @@ class AIInsightService:
             # ------------------------------------------------------------------
             context_request = {
                 "report_type": "monthly_financial",
-                "date_from": config.get("date_from"),
-                "date_to": config.get("date_to"),
-                "language": config.get("language", "en"),
+                "date_from": config.get("date_from") or report_context.get("period_start") or report_context.get("date_from"),
+                "date_to": config.get("date_to") or report_context.get("period_end") or report_context.get("date_to"),
+                "language": _normalize_language(config.get("language") or report_context.get("language") or "en"),
+                "audience": report_context.get("audience"),
+                "objective": report_context.get("objective"),
+                "additional_instructions": report_context.get("additional_instructions"),
+                "report_title": report_context.get("report_title"),
             }
             context = FinancialContextBuilder.build(context_request)
+            language = context_request["language"]
 
             # ------------------------------------------------------------------
             # Build the prompt using the existing report prompt builders.
@@ -105,19 +125,35 @@ class AIInsightService:
                 trends = context.get("trends", {})
                 if trends:
                     metric_name = next(iter(trends))
-                    user_prompt = prompt_builder(metric_name, trends[metric_name], "en")
+                    user_prompt = prompt_builder(metric_name, trends[metric_name], language)
                 else:
-                    user_prompt = prompt_builder("revenue", {}, "en")
+                    user_prompt = prompt_builder("revenue", {}, language)
             elif insight_type in ("anomaly_detection",):
-                user_prompt = prompt_builder(context.get("anomalies", {}), "en")
+                user_prompt = prompt_builder(context.get("anomalies", {}), language)
             elif insight_type in ("cash_flow_analysis", "cash_flow"):
                 # Pass the full context so the cash flow prompt can pull
                 # total_inflows / total_outflows / net_cash_flow values.
-                user_prompt = prompt_builder(context, "en")
+                user_prompt = prompt_builder(context, language)
             else:
-                user_prompt = prompt_builder(context, "en")
+                user_prompt = prompt_builder(context, language)
 
-            system_prompt = build_report_system_prompt("en")
+            audience = report_context.get("audience") or "Finance Team"
+            additional_instructions = (report_context.get("additional_instructions") or "").strip()
+            objective = report_context.get("objective") or ""
+            period_start = context_request.get("date_from")
+            period_end = context_request.get("date_to")
+
+            insight_contract = (
+                f"\n\nINSIGHT CONTRACT:\n"
+                f"- Generate the narrative in language: {language}.\n"
+                f"- Target audience: {audience}. Adjust tone/detail accordingly.\n"
+                f"- Reporting period: {period_start} to {period_end}. Do not analyze outside this period unless explicitly requested.\n"
+                f"- Objective: {objective}\n"
+                f"- Additional instructions: {additional_instructions}\n"
+                "- Never echo instructions verbatim. Never invent financial values.\n"
+            )
+            user_prompt = user_prompt + insight_contract
+            system_prompt = build_report_system_prompt(language)
 
             logger.info(
                 "[AI_INSIGHT] Calling existing LLM Manager (intent=%s, max_tokens=%s)",
@@ -131,6 +167,7 @@ class AIInsightService:
             # ------------------------------------------------------------------
             result = generate_answer(
                 prompt=user_prompt,
+                system_prompt=system_prompt,
                 max_tokens=INSIGHT_MAX_TOKENS,
                 intent=INSIGHT_INTENT,
                 context=str(context),

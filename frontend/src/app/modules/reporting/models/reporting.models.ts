@@ -146,7 +146,9 @@ export interface AiReportRequest {
 
 export interface AiReportPreview {
   title: string;
+  description: string;
   structure: ReportStructureNode[];
   sections: ReportSection[];
   selected_components: string[];
+  definition: Record<string, any>;
 }
