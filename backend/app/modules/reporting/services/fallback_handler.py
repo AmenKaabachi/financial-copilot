@@ -89,13 +89,6 @@ class FallbackHandler:
         """
         logger.warning(f"Using fallback for section: {section_type}")
 
-        # Try database template first (if configured)
-        db_template = FallbackHandler._try_database_template(section_type, context)
-        if db_template:
-            logger.info(f"Using database template for {section_type}")
-            return db_template
-
-        # Try dynamic fallback based on context
         dynamic_content = FallbackHandler._try_dynamic_fallback(section_type, context)
         if dynamic_content:
             logger.info(f"Using dynamic fallback for {section_type}")
@@ -104,23 +97,6 @@ class FallbackHandler:
         # Fall back to static default template
         logger.info(f"Using static default template for {section_type}")
         return FallbackHandler.DEFAULT_TEMPLATES.get(section_type, {})
-
-    @staticmethod
-    def _try_database_template(section_type: str, context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """
-        Try to load template from database.
-
-        Args:
-            section_type: Type of section
-            context: Financial context
-
-        Returns:
-            Template dictionary if found, None otherwise
-        """
-        # TODO: Implement database template retrieval
-        # This would query a report_templates table for custom templates
-        # For now, return None to skip to next fallback layer
-        return None
 
     @staticmethod
     def _try_dynamic_fallback(section_type: str, context: Dict[str, Any]) -> Optional[Dict[str, Any]]:

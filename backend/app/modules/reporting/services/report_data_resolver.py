@@ -75,13 +75,21 @@ class ReportDataResolver:
         config = section.get("config", {})
         # Try top-level first, then fall back to config sub-dict
         metric = (
-            section.get("metric") or section.get("kpi_key")
-            or config.get("metric") or config.get("kpi_key")
+            section.get("metric")
+            or section.get("kpi_key")
+            or section.get("data_source")
+            or config.get("metric")
+            or config.get("kpi_key")
+            or config.get("data_source")
             or (config.get("kpis", [None])[0] if isinstance(config.get("kpis"), list) else None)
         )
         component_id = config.get("component_id") or section.get("component_id")
 
         logger.info(f"[RESOLVER] Resolving KPI: metric={metric}, component_id={component_id}")
+
+        if not metric:
+            logger.warning("[RESOLVER] KPI section has no metric or component_id")
+            return {"error": "KPI section: no data source specified"}
 
         if component_id:
             # Use component registry for component-based KPIs

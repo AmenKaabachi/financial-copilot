@@ -759,7 +759,9 @@ class ExportEngine:
         if limit and isinstance(rows, list):
             rows = rows[:limit]
 
-        logger.info(f"[TABLE] Rendering table: '{title}' with {len(rows)} rows (total available: {total_rows})")
+        logger.info(
+            f"[TABLE] Rendering table: '{title}' with {len(rows)} rows (total available: {total_rows}, limit={limit})"
+        )
 
         if not rows:
             story.append(Paragraph(f"<b>{title}</b>", styles['Heading2']))

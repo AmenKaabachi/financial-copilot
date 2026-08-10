@@ -38,6 +38,7 @@ INSIGHT_TYPE_TO_PROMPT_BUILDER = {
     "forecast": build_financial_outlook_prompt,
     "cash_flow_analysis": build_cash_flow_analysis_prompt,
     "cash_flow": build_cash_flow_analysis_prompt,
+    "financial_analysis": build_executive_summary_prompt,
 }
 
 # Intent used for model selection through the existing LLM Manager
@@ -105,7 +106,7 @@ class AIInsightService:
             # It resolves KPIs (including cash flow) from AnalyticsService.
             # ------------------------------------------------------------------
             context_request = {
-                "report_type": "monthly_financial",
+                "report_type": report_context.get("report_type", "monthly_financial"),
                 "date_from": config.get("date_from") or report_context.get("period_start") or report_context.get("date_from"),
                 "date_to": config.get("date_to") or report_context.get("period_end") or report_context.get("date_to"),
                 "language": _normalize_language(config.get("language") or report_context.get("language") or "en"),
@@ -117,25 +118,41 @@ class AIInsightService:
             context = FinancialContextBuilder.build(context_request)
             language = context_request["language"]
 
+            logger.info(
+                "[AI_INSIGHT] Resolved context | insight_type=%s | report_type=%s | language=%s | period=%s to %s",
+                insight_type,
+                context_request.get("report_type"),
+                language,
+                context_request.get("date_from"),
+                context_request.get("date_to"),
+            )
+
             # ------------------------------------------------------------------
             # Build the prompt using the existing report prompt builders.
+            # Each builder has a specific signature; dispatch explicitly to
+            # avoid signature mismatches (e.g. trend_analysis expects
+            # (metric_name, trend_data, language), while most others expect
+            # (context, language)).
             # ------------------------------------------------------------------
-            if insight_type in ("trend_analysis",):
-                # Use the first available trend metric from the context
+            if insight_type == "trend_analysis":
                 trends = context.get("trends", {})
                 if trends:
                     metric_name = next(iter(trends))
-                    user_prompt = prompt_builder(metric_name, trends[metric_name], language)
+                    user_prompt = build_trend_analysis_prompt(metric_name, trends[metric_name], language)
                 else:
-                    user_prompt = prompt_builder("revenue", {}, language)
-            elif insight_type in ("anomaly_detection",):
-                user_prompt = prompt_builder(context.get("anomalies", {}), language)
+                    user_prompt = build_trend_analysis_prompt("revenue", {}, language)
+            elif insight_type == "anomaly_detection":
+                user_prompt = build_anomaly_explanation_prompt(context.get("anomalies", {}), language)
             elif insight_type in ("cash_flow_analysis", "cash_flow"):
-                # Pass the full context so the cash flow prompt can pull
-                # total_inflows / total_outflows / net_cash_flow values.
-                user_prompt = prompt_builder(context, language)
+                user_prompt = build_cash_flow_analysis_prompt(context, language)
+            elif insight_type in ("performance_review", "forecast", "financial_analysis"):
+                user_prompt = build_executive_summary_prompt(context, language)
             else:
-                user_prompt = prompt_builder(context, language)
+                logger.warning(
+                    "[AI_INSIGHT] Unknown insight_type='%s' - falling back to executive_summary",
+                    insight_type,
+                )
+                user_prompt = build_executive_summary_prompt(context, language)
 
             audience = report_context.get("audience") or "Finance Team"
             additional_instructions = (report_context.get("additional_instructions") or "").strip()

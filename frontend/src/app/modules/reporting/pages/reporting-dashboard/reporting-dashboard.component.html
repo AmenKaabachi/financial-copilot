@@ -13,10 +13,6 @@
       <span class="text-2xl font-bold text-[#0F172A]">{{ summary.draft_reports }}</span>
       <span class="text-xs font-medium text-[#6B7280] uppercase tracking-wider mt-1">Drafts</span>
     </div>
-    <div class="flex flex-col p-4 bg-[#F7F8FA] border border-[#E7E9EE] rounded-lg transition-all duration-200 hover:bg-white hover:border-[#D1D5DB]">
-      <span class="text-2xl font-bold text-[#0F172A]">{{ summary.total_templates }}</span>
-      <span class="text-xs font-medium text-[#6B7280] uppercase tracking-wider mt-1">Templates</span>
-    </div>
   </div>
 
   <!-- Actions -->
@@ -140,25 +136,6 @@
     </div>
   </div>
 
-  <!-- Templates -->
-  <div *ngIf="templates.length > 0" class="mt-8">
-    <div class="flex items-center gap-2 mb-3">
-      <span class="text-sm font-semibold text-[#0F172A]">Templates</span>
-      <span class="text-xs text-[#6B7280] bg-[#F7F8FA] px-2 py-0.5 rounded-full">{{ templates.length }}</span>
-    </div>
-    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-      <div *ngFor="let template of templates" class="flex items-center gap-2.5 p-2.5 bg-white border border-[#E7E9EE] rounded-lg transition-all duration-200 hover:border-[#D1D5DB] hover:-translate-y-0.5 hover:shadow-sm cursor-pointer">
-        <div class="flex items-center justify-center w-8 h-8 bg-[#EBF0FF] rounded-md font-bold text-sm text-[#2F5FE0] flex-shrink-0">
-          {{ template.name.charAt(0) }}
-        </div>
-        <div class="flex flex-col gap-0.5 min-w-0">
-          <span class="text-sm font-semibold text-[#0F172A] truncate">{{ template.name }}</span>
-          <span class="text-xs text-[#6B7280]">{{ template.category }}</span>
-        </div>
-      </div>
-    </div>
-  </div>
-
   <!-- Create Modal -->
   <div *ngIf="showCreateModal" class="fixed inset-0 bg-black/30 flex items-center justify-center z-50 animate-fadeIn" (click)="showCreateModal = false">
     <div class="bg-white rounded-xl w-[440px] max-w-[90vw] shadow-xl animate-slideUp" (click)="$event.stopPropagation()">
@@ -180,7 +157,6 @@
           <select [(ngModel)]="newReportSource" class="w-full px-3 py-2 border border-[#E7E9EE] rounded-md text-sm text-[#0F172A] bg-white transition-all duration-200 focus:outline-none focus:border-[#2F5FE0] focus:ring-2 focus:ring-[#2F5FE0]/10">
             <option value="manual">Manual</option>
             <option value="ai">AI Generated</option>
-            <option value="template">From Template</option>
           </select>
         </div>
       </div>

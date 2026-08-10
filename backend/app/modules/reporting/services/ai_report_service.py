@@ -122,6 +122,7 @@ class AIReportService:
         period_start = contract.get("period_start")
         period_end = contract.get("period_end")
         additional_instructions = (contract.get("additional_instructions") or "").strip()
+        report_type = contract.get("report_type") or "monthly_financial"
 
         logger.info("[AI_ARCHITECT] ====== Begin prompt-to-definition generation ======")
         logger.info("[AI_ARCHITECT] Input objective received (len=%d)", len(prompt))
@@ -155,6 +156,8 @@ class AIReportService:
             "period_start": period_start,
             "period_end": period_end,
             "additional_instructions": additional_instructions,
+            "report_type": report_type,
+            "table_limit": contract.get("table_limit"),
             "available_data_sources": [
                 "erp_transactions",
                 "reconciliation_records",
@@ -242,6 +245,7 @@ class AIReportService:
                     "period_start": period_start,
                     "period_end": period_end,
                     "additional_instructions": additional_instructions,
+                    "report_type": report_type,
                 },
                 "_generation": {
                     "generation_mode": "llm",
@@ -367,7 +371,6 @@ class AIReportService:
                     "title": localized.get("transactions", "Transaction Overview"),
                     "data_source": "erp_transactions",
                     "visible_columns": ["invoice_id", "supplier", "invoice_date", "due_date", "amount", "currency", "status"],
-                    "limit": 20
                 }
             })
         
@@ -432,6 +435,7 @@ class AIReportService:
                 "period_start": (context or {}).get("period_start"),
                 "period_end": (context or {}).get("period_end"),
                 "additional_instructions": (context or {}).get("additional_instructions"),
+                "report_type": (context or {}).get("report_type", "monthly_financial"),
             },
             "_generation": {
                 "generation_mode": "fallback",

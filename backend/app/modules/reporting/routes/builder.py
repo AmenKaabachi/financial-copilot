@@ -163,17 +163,6 @@ def publish_report(report_id: str):
     return {"status": "ok", "data": report}
 
 
-@router.post("/reports/{report_id}/save-template")
-async def save_report_as_template(report_id: str, request: Request):
-    """Save a report as a template."""
-    body = await request.json()
-    category = body.get("category", "custom")
-    template = ReportService.save_as_template(report_id, category)
-    if not template:
-        return {"status": "error", "message": "Failed to save template"}
-    return {"status": "ok", "data": template}
-
-
 # --- Version Endpoints ---
 
 @router.post("/reports/{report_id}/versions")
@@ -202,28 +191,6 @@ def get_version(report_id: str, version_number: int):
     if not version:
         return {"status": "error", "message": "Version not found"}
     return {"status": "ok", "data": version}
-
-
-# --- Template Endpoints ---
-
-@router.get("/templates")
-def list_templates(
-    category: Optional[str] = Query(default=None),
-    limit: int = Query(default=20, ge=1, le=100),
-    offset: int = Query(default=0, ge=0),
-):
-    templates = ReportService.list_templates(
-        category=category, limit=limit, offset=offset
-    )
-    return {"status": "ok", "data": templates, "total": len(templates)}
-
-
-@router.get("/templates/{template_id}")
-def get_template(template_id: str):
-    template = ReportService.get_template(template_id)
-    if not template:
-        return {"status": "error", "message": "Template not found"}
-    return {"status": "ok", "data": template}
 
 
 # --- Export Endpoints ---

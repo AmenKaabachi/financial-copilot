@@ -19,19 +19,9 @@ interface DashboardSummary {
   total_reports: number;
   draft_reports: number;
   published_reports: number;
-  total_templates: number;
   total_exports: number;
   recent_reports: ReportSummary[];
   favorite_reports: ReportSummary[];
-}
-
-interface TemplateSummary {
-  id: string;
-  name: string;
-  category: string;
-  scope: string;
-  thumbnail_url: string;
-  is_favorite: boolean;
 }
 
 interface ExportJob {
@@ -53,7 +43,6 @@ interface ExportJob {
 export class ReportingDashboardComponent implements OnInit {
   summary: DashboardSummary | null = null;
   reports: ReportSummary[] = [];
-  templates: TemplateSummary[] = [];
   exports: Record<string, ExportJob[]> = {};
   loading = true;
   error = false;
@@ -125,7 +114,6 @@ export class ReportingDashboardComponent implements OnInit {
   ngOnInit(): void {
     this.loadDashboard();
     this.loadReports();
-    this.loadTemplates();
   }
 
   loadDashboard(): void {
@@ -156,18 +144,6 @@ export class ReportingDashboardComponent implements OnInit {
         if (res.status === 'ok') {
           this.reports = res.data;
           this.reports.forEach(r => this.loadExports(r.id));
-        }
-      },
-      error: () => {},
-    });
-  }
-
-  loadTemplates(): void {
-    // ✅ Added /api prefix
-    this.http.get<{ status: string; data: TemplateSummary[] }>('/api/reporting/builder/templates').subscribe({
-      next: (res) => {
-        if (res.status === 'ok') {
-          this.templates = res.data;
         }
       },
       error: () => {},

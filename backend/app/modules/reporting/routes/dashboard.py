@@ -28,7 +28,6 @@ def reporting_dashboard():
                 "total_reports": 0,
                 "draft_reports": 0,
                 "published_reports": 0,
-                "total_templates": 0,
                 "total_exports": 0,
                 "recent_reports": [],
                 "favorite_reports": [],

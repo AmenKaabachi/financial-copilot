@@ -5,7 +5,7 @@ export interface ReportDefinition {
   version: number;
   tags: string[];
   owner_id: string;
-  source: 'manual' | 'ai' | 'template';
+  source: 'manual' | 'ai';
   creation_method: 'AI_GENERATED' | 'MANUAL_BUILDER';
   status: 'draft' | 'published' | 'archived';
   definition: Record<string, unknown>;
@@ -38,19 +38,6 @@ export interface ReportVersion {
   change_note: string;
   created_at: string;
   created_by: string;
-}
-
-export interface ReportTemplate {
-  id: string;
-  name: string;
-  category: string;
-
-  definition: Record<string, unknown>;
-  thumbnail_url: string;
-  created_by: string;
-  is_favorite: boolean;
-  created_at: string;
-  updated_at: string;
 }
 
 export interface ExportJob {

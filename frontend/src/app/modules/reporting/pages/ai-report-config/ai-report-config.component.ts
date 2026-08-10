@@ -42,7 +42,7 @@ export class AiReportConfigComponent implements OnInit {
     'Department Heads',
   ];
 
-  languageOptions = ['English', 'French', 'Arabic', 'Spanish', 'German'];
+  languageOptions = ['English', 'French'];
 
   examplePrompt = `Create a monthly financial performance report analyzing revenue trends, expenses, profit margins, cash flow situation, outstanding invoices, reconciliation accuracy, and important anomalies. Highlight risks and provide management recommendations.`;
 
@@ -61,7 +61,10 @@ export class AiReportConfigComponent implements OnInit {
   }
 
   private formatDate(date: Date): string {
-    return date.toISOString().split('T')[0];
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
   }
 
   generateStructure(): void {
@@ -140,19 +143,6 @@ export class AiReportConfigComponent implements OnInit {
       error: () => {
         this.error = 'An error occurred while creating the report.';
         this.loading = false;
-      },
-    });
-  }
-
-  saveAsTemplate(): void {
-    if (!this.generatedReportId) return;
-    this.reportingService.saveAsTemplate(this.generatedReportId, 'ai-generated').subscribe({
-      next: () => {
-        // Navigate to the report builder
-        this.router.navigate(['/reporting/builder', this.generatedReportId]);
-      },
-      error: () => {
-        this.error = 'Failed to save as template.';
       },
     });
   }

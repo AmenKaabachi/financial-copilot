@@ -9,6 +9,8 @@ import logging
 import uuid
 from typing import Any, Dict, List, Optional
 
+from app.modules.reporting.services.report_localization import ReportLocalization
+
 logger = logging.getLogger(__name__)
 
 # Fuzzy term mappings to backend identifiers
@@ -102,8 +104,20 @@ class SectionNormalizer:
                     chart_type = "reconciliation_trend"
 
             norm["chart_type"] = chart_type
-            norm["data_source"] = norm.get("data_source") or chart_type
+            # chart_type may be a matplotlib render type (line, bar, pie, donut, grouped_bar).
+            # If data_source is missing, do NOT blindly reuse chart_type as data_source,
+            # because render types are not valid analytics chart keys.
+            _VALID_RENDER_TYPES = {"line", "bar", "grouped_bar", "pie", "donut"}
+            if not norm.get("data_source"):
+                if chart_type in _VALID_RENDER_TYPES:
+                    norm["data_source"] = "reconciliation_trend"
+                else:
+                    norm["data_source"] = chart_type
             norm["title"] = config.get("title") or chart_type.replace("_", " ").title()
+            logger.info(
+                "[MAPPER] Normalized chart | chart_type=%s | data_source=%s | title=%s",
+                chart_type, norm["data_source"], norm["title"]
+            )
 
         elif sec_type == "table":
             title = (norm.get("title") or "Data Table").lower()
@@ -122,12 +136,24 @@ class SectionNormalizer:
 
             if not norm.get("visible_columns"):
                 norm["visible_columns"] = DEFAULT_VISIBLE_COLUMNS.get(data_source, ["invoice_id", "supplier", "amount", "status"])
-            if not norm.get("limit"):
+            # Only apply a default limit when the user/LLM did not specify one.
+            # Explicit user limits must never be overridden.
+            if norm.get("limit") is None:
                 norm["limit"] = 20
+            logger.info(
+                "[MAPPER] Normalized table | data_source=%s | limit=%s | title=%s",
+                data_source, norm.get("limit"), norm["title"]
+            )
 
         elif sec_type == "kpi":
             title = (norm.get("title") or "Key Metrics").lower()
-            data_source = norm.get("data_source") or norm.get("kpi_key")
+            # Preserve explicit data_source/kpi_key from the LLM or frontend
+            data_source = (
+                norm.get("data_source")
+                or norm.get("kpi_key")
+                or config.get("data_source")
+                or config.get("kpi_key")
+            )
 
             if not data_source:
                 for key, val in KPI_MAPPING.items():
@@ -140,11 +166,21 @@ class SectionNormalizer:
             norm["data_source"] = data_source
             norm["kpi_key"] = data_source
             norm["title"] = config.get("title") or f"{data_source.replace('_', ' ').title()} KPIs"
+            logger.info(
+                "[MAPPER] Normalized kpi | data_source=%s | kpi_key=%s | title=%s",
+                data_source, norm["kpi_key"], norm["title"]
+            )
 
         elif sec_type == "recommendation":
             norm["title"] = norm.get("title") or "Executive Recommendations"
             if not norm.get("recommendations") and not norm.get("items"):
-                norm["recommendations"] = DEFAULT_RECOMMENDATIONS
+                # Use localized fallback recommendations based on report language
+                language = (config.get("language") or "en").strip().lower()
+                norm["recommendations"] = ReportLocalization.fallback_recommendations(language)
+            logger.info(
+                "[MAPPER] Normalized recommendation | title=%s | count=%d",
+                norm["title"], len(norm.get("recommendations", []))
+            )
 
         elif sec_type == "text":
             norm["title"] = norm.get("title") or "Executive Overview"

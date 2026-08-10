@@ -251,6 +251,8 @@ class ReportService:
             period_start = request.get("period_start")
             period_end = request.get("period_end")
             additional_instructions = (request.get("additional_instructions") or "").strip()
+            report_type = request.get("report_type") or "monthly_financial"
+            table_limit = request.get("table_limit")
             ReportService._validate_period(period_start, period_end)
 
             if not report_title:
@@ -266,6 +268,8 @@ class ReportService:
                 "period_start": period_start,
                 "period_end": period_end,
                 "additional_instructions": additional_instructions,
+                "report_type": report_type,
+                "table_limit": table_limit,
             }
 
             ai_service = AIReportService()
@@ -290,10 +294,23 @@ class ReportService:
                 "period_start": period_start,
                 "period_end": period_end,
                 "additional_instructions": additional_instructions,
+                "report_type": report_type,
+                "table_limit": table_limit,
             }
 
             sections = definition.get("sections", [])
             section_types = [sec.get("type") for sec in sections if isinstance(sec, dict)]
+
+            # Apply global table_limit to table sections that have the normalizer
+            # default limit (20). This preserves user-specified limits while not
+            # overriding explicit values set by the LLM or manual builder.
+            if table_limit is not None:
+                for sec in sections:
+                    if isinstance(sec, dict) and sec.get("type") == "table":
+                        sec_config = sec.get("config") or {}
+                        if sec_config.get("limit") == 20:
+                            sec_config["limit"] = table_limit
+                            sec["config"] = sec_config
 
             logger.info(f"[AI_BUILDER] Generated sections: {section_types}")
             logger.info("[AI_BUILDER] Validation passed")
@@ -518,66 +535,6 @@ class ReportService:
             return result.data[0] if result.data else None
         except Exception as exc:
             logger.warning("Failed to publish report %s: %s", report_id, exc)
-            return None
-
-    # --- Template Methods ---
-
-    @staticmethod
-    def list_templates(
-        category: Optional[str] = None,
-        limit: int = 20,
-        offset: int = 0,
-    ) -> List[Dict[str, Any]]:
-        try:
-            query = _table("report_templates").select(
-                "id, name, category, definition, thumbnail_url, created_by, is_favorite, created_at, updated_at"
-            )
-            if category:
-                query = query.eq("category", category)
-            query = query.order("created_at", desc=True).range(offset, offset + limit - 1)
-            result = query.execute()
-            return result.data or []
-        except Exception as exc:
-            logger.warning("Failed to list templates: %s", exc)
-            return []
-
-    @staticmethod
-    def get_template(template_id: str) -> Optional[Dict[str, Any]]:
-        try:
-            result = (
-                _table("report_templates")
-                .select("id, name, category, definition, thumbnail_url, created_by, is_favorite, created_at, updated_at")
-                .eq("id", template_id)
-                .single()
-                .execute()
-            )
-            return result.data
-        except Exception as exc:
-            logger.warning("Failed to get template %s: %s", template_id, exc)
-            return None
-
-    @staticmethod
-    def save_as_template(report_id: str, category: str = "custom") -> Optional[Dict[str, Any]]:
-        """Save an existing report as a template."""
-        try:
-            report = ReportService.get_report(report_id)
-            if not report:
-                return None
-            now = datetime.now(timezone.utc).isoformat()
-            record = {
-                "name": report.get("name", "Untitled Template"),
-                "category": category,
-                "definition": report.get("definition", {}),
-                "thumbnail_url": "",
-                "created_by": report.get("owner_id"),
-                "is_favorite": False,
-                "created_at": now,
-                "updated_at": now,
-            }
-            result = _table("report_templates").insert(record).execute()
-            return result.data[0] if result.data else None
-        except Exception as exc:
-            logger.warning("Failed to save template from report %s: %s", report_id, exc)
             return None
 
     # --- Export Methods ---

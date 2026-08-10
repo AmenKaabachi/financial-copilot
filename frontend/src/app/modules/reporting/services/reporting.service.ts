@@ -2,7 +2,7 @@ import { Injectable } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import {
-  ReportDefinition, ReportVersion, ReportTemplate, ExportJob,
+  ReportDefinition, ReportVersion, ExportJob,
   AnalyticsKpis, ChartDataResponse, AiReportRequest, AiReportPreview,
   ReportSection, AnalyticsComponent, ComponentPreview
 } from '../models/reporting.models';
@@ -11,7 +11,6 @@ export interface DashboardSummary {
   total_reports: number;
   draft_reports: number;
   published_reports: number;
-  total_templates: number;
   total_exports: number;
   recent_reports: ReportSummary[];
   favorite_reports: ReportSummary[];
@@ -138,10 +137,6 @@ export class ReportingService {
     return this.http.post<{ status: string; data: ReportDefinition }>(`${this.apiUrl}/builder/reports/${reportId}/publish`, {});
   }
 
-  saveAsTemplate(reportId: string, category: string = 'custom'): Observable<{ status: string; data: ReportTemplate }> {
-    return this.http.post<{ status: string; data: ReportTemplate }>(`${this.apiUrl}/builder/reports/${reportId}/save-template`, { category });
-  }
-
   // Versions
   createVersion(reportId: string, definition: any, changeNote: string): Observable<{ status: string; data: any }> {
     return this.http.post<{ status: string; data: any }>(`${this.apiUrl}/builder/reports/${reportId}/versions`, {
@@ -151,15 +146,6 @@ export class ReportingService {
 
   listVersions(reportId: string): Observable<{ status: string; data: any[] }> {
     return this.http.get<{ status: string; data: any[] }>(`${this.apiUrl}/builder/reports/${reportId}/versions`);
-  }
-
-  // Templates
-  getTemplates(): Observable<{ status: string; data: ReportTemplate[] }> {
-    return this.http.get<{ status: string; data: ReportTemplate[] }>(`${this.apiUrl}/builder/templates`);
-  }
-
-  getTemplate(templateId: string): Observable<{ status: string; data: ReportTemplate }> {
-    return this.http.get<{ status: string; data: ReportTemplate }>(`${this.apiUrl}/builder/templates/${templateId}`);
   }
 
   // Exports

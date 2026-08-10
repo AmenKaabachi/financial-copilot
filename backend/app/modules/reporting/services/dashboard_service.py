@@ -17,7 +17,6 @@ class DashboardService:
         total_reports = DashboardService._count("report_definitions")
         draft_reports = DashboardService._count("report_definitions", {"status": "draft"})
         published_reports = DashboardService._count("report_definitions", {"status": "published"})
-        total_templates = DashboardService._count("report_templates")
         total_exports = DashboardService._count("report_exports")
         recent_reports = DashboardService._recent("report_definitions", limit=5)
         favorite_reports = DashboardService._favorites("report_definitions", limit=5)
@@ -26,7 +25,6 @@ class DashboardService:
             "total_reports": total_reports,
             "draft_reports": draft_reports,
             "published_reports": published_reports,
-            "total_templates": total_templates,
             "total_exports": total_exports,
             "recent_reports": recent_reports,
             "favorite_reports": favorite_reports,
