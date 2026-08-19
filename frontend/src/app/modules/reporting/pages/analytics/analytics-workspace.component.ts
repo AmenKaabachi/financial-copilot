@@ -1,8 +1,16 @@
-import { Component, OnInit, AfterViewInit, OnDestroy, ViewChild, ElementRef, PLATFORM_ID, Inject, QueryList, ViewChildren } from '@angular/core';
+import { Component, OnInit, AfterViewInit, OnDestroy, ElementRef, PLATFORM_ID, Inject, QueryList, ViewChildren } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { CommonModule, isPlatformBrowser } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { Observable, Subject, forkJoin, of } from 'rxjs';
+import { catchError, takeUntil, finalize } from 'rxjs/operators';
 import * as echarts from 'echarts';
+import { environment } from '../../../../../environments/environment';
+
+interface ApiResponse<T> {
+  status: string;
+  data: T;
+}
 
 interface KpiData {
   revenue: { total_revenue: number; outstanding_revenue: number; invoice_count: number; paid_invoice_count: number };
@@ -30,9 +38,9 @@ interface ChartDataResponse {
   type?: { labels: string[]; data: number[] };
 }
 
-// Custom type to store resize handler with chart
-interface ChartWithResize extends echarts.ECharts {
-  _resizeHandler?: () => void;
+interface StoredChart {
+  instance: echarts.ECharts;
+  resizeHandler: () => void;
 }
 
 @Component({
@@ -43,9 +51,7 @@ interface ChartWithResize extends echarts.ECharts {
   styleUrl: './analytics-workspace.component.css',
 })
 export class AnalyticsWorkspaceComponent implements OnInit, AfterViewInit, OnDestroy {
-  // Use ViewChildren with a single template reference
-  @ViewChildren('chartContainer')
-  chartContainers!: QueryList<ElementRef>;
+  @ViewChildren('chartContainer') chartContainers!: QueryList<ElementRef>;
 
   kpis: KpiData | null = null;
   loading = true;
@@ -58,16 +64,22 @@ export class AnalyticsWorkspaceComponent implements OnInit, AfterViewInit, OnDes
   statusFilter: string = 'all';
   severityFilter: string = 'all';
 
-  // Chart instances
-  private charts: ChartWithResize[] = [];
+  // Chart instances & lifecycle management
+  private destroy$ = new Subject<void>();
+  private chartInstances = new Map<string, StoredChart>();
   private chartDataCache: Record<string, ChartDataResponse> = {};
-  private loadedCharts = new Set<string>();
-  private viewReady = false;
   private chartDataLoaded = false;
-  private isRendering = false;
-  private initAttempts = 0;
-  private readonly MAX_INIT_ATTEMPTS = 10;
-  private readonly CHART_TYPES = ['reconciliation_trend', 'transaction_volume', 'anomaly_distribution', 'anomaly_type', 'bank_vs_erp', 'payment_status'];
+  private chartsRendered = false;
+  private viewReady = false;
+
+  private readonly CHART_TYPES = [
+    'reconciliation_trend',
+    'transaction_volume',
+    'anomaly_distribution',
+    'anomaly_type',
+    'bank_vs_erp',
+    'payment_status'
+  ];
 
   constructor(
     private http: HttpClient,
@@ -85,42 +97,94 @@ export class AnalyticsWorkspaceComponent implements OnInit, AfterViewInit, OnDes
 
     this.viewReady = true;
 
-    // Log initial view children
-    console.log('[Analytics] Initial view children:', this.chartContainers.length);
-
-    // Subscribe to changes in chart containers
-    this.chartContainers.changes.subscribe(() => {
-      console.log('[Analytics] View children changed - containers:', this.chartContainers.length);
-      if (this.chartDataLoaded && this.chartContainers.length > 0) {
+    // Reactively trigger chart initialization when DOM containers are created/updated
+    this.chartContainers.changes
+      .pipe(takeUntil(this.destroy$))
+      .subscribe(() => {
         this.tryInitCharts();
-      }
-    });
+      });
 
-    // Initial attempt after a delay
-    setTimeout(() => {
-      if (this.chartDataLoaded) {
-        this.tryInitCharts();
-      }
-    }, 300);
+    // Attempt chart initialization if data is already available
+    this.tryInitCharts();
   }
 
   ngOnDestroy(): void {
+    this.destroy$.next();
+    this.destroy$.complete();
     this.disposeCharts();
   }
 
   loadAllData(): void {
-    // Dispose existing charts before loading new data
     this.disposeCharts();
 
     this.loading = true;
     this.error = false;
     this.chartDataLoaded = false;
+    this.chartsRendered = false;
     this.chartDataCache = {};
-    this.loadedCharts.clear();
-    this.initAttempts = 0;
 
-    this.loadKpis();
-    this.CHART_TYPES.forEach(type => this.loadChartData(type));
+    this.log('Loading data...');
+
+    // Build observables for KPIs and individual chart datasets
+    const kpiObs = this.fetchKpis().pipe(
+      catchError(err => {
+        this.logError('Failed to load KPIs:', err);
+        return of(null);
+      })
+    );
+
+    const chartDataObsMap: Record<string, Observable<ApiResponse<ChartDataResponse> | null>> = {};
+    this.CHART_TYPES.forEach(type => {
+      chartDataObsMap[type] = this.fetchChartData(type).pipe(
+        catchError(err => {
+          this.logError(`Failed to load chart data for ${type}:`, err);
+          return of(null);
+        })
+      );
+    });
+
+    forkJoin({
+      kpis: kpiObs,
+      charts: forkJoin(chartDataObsMap)
+    })
+    .pipe(
+      takeUntil(this.destroy$),
+      finalize(() => {
+        this.loading = false;
+      })
+    )
+    .subscribe({
+      next: (results) => {
+        if (results.kpis && results.kpis.status === 'ok') {
+          this.kpis = results.kpis.data;
+        } else {
+          this.error = true;
+          this.logError('KPI payload invalid or error returned');
+        }
+
+        let loadedCount = 0;
+        const chartsMap = results.charts as Record<string, ApiResponse<ChartDataResponse> | null>;
+        if (chartsMap) {
+          Object.keys(chartsMap).forEach(chartType => {
+            const res = chartsMap[chartType];
+            if (res && res.status === 'ok' && res.data) {
+              this.chartDataCache[chartType] = res.data;
+              loadedCount++;
+            }
+          });
+        }
+
+        this.chartDataLoaded = true;
+        this.log(`Data loaded: ${loadedCount}/${this.CHART_TYPES.length} charts`);
+
+        // Check if containers are ready to render charts
+        this.tryInitCharts();
+      },
+      error: (err) => {
+        this.logError('Failed to execute analytics data requests:', err);
+        this.error = true;
+      }
+    });
   }
 
   applyFilters(): void {
@@ -135,177 +199,71 @@ export class AnalyticsWorkspaceComponent implements OnInit, AfterViewInit, OnDes
     this.loadAllData();
   }
 
-  private loadKpis(): void {
+  private fetchKpis() {
     let url = '/api/reporting/analytics/kpis';
     const params = new URLSearchParams();
     if (this.dateFrom) params.set('date_from', this.dateFrom);
     if (this.dateTo) params.set('date_to', this.dateTo);
     if (params.toString()) url += '?' + params.toString();
 
-    console.log('[Analytics] Fetching KPIs from:', url);
-
-    this.http.get<{ status: string; data: KpiData }>(url).subscribe({
-      next: (res) => {
-        console.log('[Analytics] KPI response:', res);
-        if (res.status === 'ok') {
-          this.kpis = res.data;
-
-          // ✅ Trigger chart initialization after KPI loads
-          setTimeout(() => {
-            if (this.chartDataLoaded) {
-              console.log('[Analytics] KPI loaded, retry chart initialization');
-              this.tryInitCharts();
-            }
-          }, 300);
-        } else {
-          console.error('[Analytics] KPI response status not ok:', res);
-          this.error = true;
-        }
-        this.loading = false;
-      },
-      error: (err) => {
-        console.error('[Analytics] KPI error:', err);
-        this.error = true;
-        this.loading = false;
-      },
-    });
+    return this.http.get<{ status: string; data: KpiData }>(url);
   }
 
-  private loadChartData(chartType: string): void {
+  private fetchChartData(chartType: string) {
     let url = `/api/reporting/analytics/chart-data?chart_type=${chartType}`;
     if (this.dateFrom) url += `&date_from=${this.dateFrom}`;
     if (this.dateTo) url += `&date_to=${this.dateTo}`;
     if (this.statusFilter !== 'all') url += `&status=${this.statusFilter}`;
     if (this.severityFilter !== 'all') url += `&severity=${this.severityFilter}`;
 
-    console.log('[Analytics] Fetching chart data from:', url);
-
-    this.http.get<{ status: string; data: ChartDataResponse }>(url).subscribe({
-      next: (res) => {
-        console.log('[Analytics] Chart data for', chartType, ':', res);
-        if (res.status === 'ok' && res.data) {
-          const chartData = res.data;
-
-          // Store data
-          this.chartDataCache[chartType] = chartData;
-          this.loadedCharts.add(chartType);
-
-          // Check if ALL charts are loaded
-          const allLoaded = this.loadedCharts.size === this.CHART_TYPES.length;
-
-          if (allLoaded) {
-            console.log('[Analytics] All charts data loaded!');
-            this.chartDataLoaded = true;
-
-            // Give Angular time to create DOM elements
-            setTimeout(() => {
-              this.tryInitCharts();
-            }, 200);
-          }
-        }
-      },
-      error: (err) => {
-        console.error('[Analytics] Chart data error:', chartType, err);
-        // Mark as loaded even on error to prevent infinite waiting
-        this.loadedCharts.add(chartType);
-
-        const allLoaded = this.loadedCharts.size === this.CHART_TYPES.length;
-        if (allLoaded) {
-          console.log('[Analytics] All charts loaded (with errors)');
-          this.chartDataLoaded = true;
-          setTimeout(() => {
-            this.tryInitCharts();
-          }, 200);
-        }
-      },
-    });
+    return this.http.get<{ status: string; data: ChartDataResponse }>(url);
   }
 
   private tryInitCharts(): void {
-    this.initAttempts++;
-
-    // Log current state
-    console.log(`[Analytics] Try #${this.initAttempts} - viewReady:`, this.viewReady,
-                'dataLoaded:', this.chartDataLoaded,
-                'loaded:', this.loadedCharts.size,
-                'expected:', this.CHART_TYPES.length,
-                'containers:', this.chartContainers.length);
-
-    // Only initialize if ALL conditions are met
     if (
       !this.isBrowser ||
       !this.viewReady ||
       !this.chartDataLoaded ||
-      this.loadedCharts.size < this.CHART_TYPES.length ||
-      this.isRendering
+      this.chartsRendered ||
+      !this.chartContainers ||
+      this.chartContainers.length === 0
     ) {
-      console.log('[Analytics] Waiting for conditions...');
-
-      // If we have data but no containers yet, wait for containers
-      if (this.chartDataLoaded && this.chartContainers.length === 0 && this.initAttempts < this.MAX_INIT_ATTEMPTS) {
-        console.log('[Analytics] Waiting for containers to appear...');
-        setTimeout(() => {
-          this.tryInitCharts();
-        }, 300);
-      }
       return;
     }
 
-    // Check if containers exist
-    if (this.chartContainers.length === 0) {
-      console.warn('[Analytics] No containers found, retrying...');
-      if (this.initAttempts < this.MAX_INIT_ATTEMPTS) {
-        setTimeout(() => {
-          this.tryInitCharts();
-        }, 300);
-      }
-      return;
-    }
-
-    console.log('[Analytics] All conditions met, initializing charts...');
+    this.chartsRendered = true;
     this.initCharts();
   }
 
   private initCharts(): void {
-    if (!this.isBrowser || this.isRendering || this.chartContainers.length === 0) return;
-    this.isRendering = true;
-
-    console.log('[Analytics] Initializing charts with', this.chartContainers.length, 'containers');
-
-    // Get containers as array
     const containers = this.chartContainers.toArray();
-    console.log('[Analytics] Containers:', containers.length);
+    this.log(`Rendering ${this.CHART_TYPES.length} charts`);
 
     let renderedCount = 0;
 
-    // Render each chart using dynamic lookup based on data-chart attribute
     this.CHART_TYPES.forEach(type => {
-      if (this.chartDataCache[type]) {
-        // 🔥 DYNAMIC LOOKUP: Find the container with matching data-chart attribute
-        const container = containers.find(
-          c => c.nativeElement.dataset['chart'] === type
-        );
-        const dom = container?.nativeElement;
+      const container = containers.find(
+        c => c.nativeElement.dataset['chart'] === type
+      );
+      const dom = container?.nativeElement;
 
-        if (dom) {
-          const success = this.renderChart(type, dom);
-          if (success) renderedCount++;
-        } else {
-          console.warn('[Analytics] DOM not found for chart type:', type, 'Available containers:',
-            containers.map(c => c.nativeElement.dataset['chart']));
-        }
+      if (dom) {
+        const success = this.renderChart(type, dom);
+        if (success) renderedCount++;
+      } else {
+        this.logError(`Container DOM not found for chart type: ${type}`);
       }
     });
 
-    console.log(`[Analytics] Rendered ${renderedCount} charts`);
-    this.isRendering = false;
+    this.log(`Charts ready (${renderedCount}/${this.CHART_TYPES.length} rendered)`);
 
-    // Force resize after all charts are rendered
-    setTimeout(() => {
-      this.charts.forEach(chart => {
-        try { chart.resize(); } catch (e) {}
+    if (typeof window !== 'undefined' && window.requestAnimationFrame) {
+      window.requestAnimationFrame(() => {
+        this.chartInstances.forEach(({ instance }) => {
+          try { instance.resize(); } catch (e) {}
+        });
       });
-    }, 200);
+    }
   }
 
   private renderChart(chartType: string, dom: HTMLElement): boolean {
@@ -314,9 +272,7 @@ export class AnalyticsWorkspaceComponent implements OnInit, AfterViewInit, OnDes
     const data = this.chartDataCache[chartType];
     if (!data) return false;
 
-    // Skip if no data for specific chart types
     if (chartType === 'bank_vs_erp' && (!data.labels || data.labels.length === 0)) {
-      console.warn('[Analytics] Skipping bank_vs_erp chart - no labels data');
       return false;
     }
 
@@ -351,33 +307,22 @@ export class AnalyticsWorkspaceComponent implements OnInit, AfterViewInit, OnDes
 
     if (Object.keys(option).length > 0) {
       try {
-        // Dispose existing chart
-        const existing = echarts.getInstanceByDom(dom);
-        if (existing) {
-          existing.dispose();
+        let item = this.chartInstances.get(chartType);
+        let chartInstance = item?.instance || echarts.getInstanceByDom(dom);
+
+        if (!chartInstance) {
+          chartInstance = echarts.init(dom);
+          const resizeHandler = () => {
+            try { chartInstance?.resize(); } catch (e) {}
+          };
+          window.addEventListener('resize', resizeHandler);
+          this.chartInstances.set(chartType, { instance: chartInstance, resizeHandler });
         }
 
-        const chart = echarts.init(dom) as ChartWithResize;
-        chart.setOption(option);
-
-        // Store resize handler
-        const resizeHandler = () => {
-          try { chart.resize(); } catch (e) {}
-        };
-        chart._resizeHandler = resizeHandler;
-
-        this.charts.push(chart);
-        window.addEventListener('resize', resizeHandler);
-
-        // Force initial resize
-        setTimeout(() => {
-          try { chart.resize(); } catch (e) {}
-        }, 100);
-
-        console.log(`[Analytics] Successfully rendered chart: ${chartType}`);
+        chartInstance.setOption(option, true);
         return true;
       } catch (error) {
-        console.warn('[Analytics] Failed to render chart:', chartType, error);
+        this.logError(`Failed to render chart: ${chartType}`, error);
         return false;
       }
     }
@@ -490,14 +435,26 @@ export class AnalyticsWorkspaceComponent implements OnInit, AfterViewInit, OnDes
   }
 
   private disposeCharts(): void {
-    this.charts.forEach((chart) => {
-      if (chart._resizeHandler) {
-        window.removeEventListener('resize', chart._resizeHandler);
+    this.chartInstances.forEach(({ instance, resizeHandler }) => {
+      if (this.isBrowser && resizeHandler) {
+        window.removeEventListener('resize', resizeHandler);
       }
-      try { chart.dispose(); } catch (e) {}
+      try {
+        instance.dispose();
+      } catch (e) {}
     });
-    this.charts = [];
-    this.isRendering = false;
+    this.chartInstances.clear();
+    this.chartsRendered = false;
+  }
+
+  private log(message: string, ...args: any[]): void {
+    if (!environment.production) {
+      console.log(`[Analytics] ${message}`, ...args);
+    }
+  }
+
+  private logError(message: string, ...args: any[]): void {
+    console.error(`[Analytics] ${message}`, ...args);
   }
 
   // Helper methods for template
@@ -553,5 +510,5 @@ export class AnalyticsWorkspaceComponent implements OnInit, AfterViewInit, OnDes
       default: return '';
     }
   }
-
 }
+
