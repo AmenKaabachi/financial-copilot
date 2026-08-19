@@ -1,342 +1,175 @@
-# BankMatch AI Financial Modules
+# AI Financial Copilot & Reporting Engine
 
-This repository contains AI-powered financial modules developed as part of the **BankMatch** financial automation platform.
+An intelligent financial assistant and automated reporting engine built with **FastAPI**, **Angular 18**, **Supabase (PostgreSQL)**, and **OpenRouter AI**.
 
-The implemented modules focus on intelligent financial assistance, financial analytics, automated reporting, and AI model evaluation to help finance teams analyze data, investigate issues, and generate business insights.
-
----
-
-# Modules
-
-## 1. AI Financial Copilot
-
-The AI Financial Copilot module provides an intelligent conversational assistant for finance teams.
-
-It allows users to interact with financial data using natural language and receive AI-powered assistance for financial investigations and analysis.
-
-### Features
-
-- Natural language financial queries
-- Investigation of reconciliation issues
-- Invoice and transaction analysis
-- Financial anomaly explanation
-- AI-generated insights
-- Real-time streaming responses
-- Multi-model Large Language Model (LLM) integration
-- Context-aware conversations
-- Intelligent financial data retrieval
+The platform provides natural language financial investigations, automated AI report generation, interactive analytics workspaces, manual drag-and-drop report building, and an LLM benchmark lab.
 
 ---
 
-# 2. Financial Reporting & Analytics
+## 🌟 Key Features
 
-The Financial Reporting & Analytics module provides a complete workspace for analyzing financial performance and creating professional reports.
+### 1. AI Financial Copilot
 
-The module combines interactive analytics dashboards, business metrics, AI-assisted report generation, and manual report creation tools.
+- **Conversational Financial Assistant**: Ask natural language questions about reconciliation, invoices, transactions, and anomalies.
+- **Real-Time Streaming**: Low-latency token streaming with automatic fallback across multi-tiered LLM provider pools.
+- **Context-Aware Retrieval**: Automatic retrieval of ERP records, bank reconciliations, and financial anomaly logs.
 
-## Analytics Workspace
+### 2. Financial Reporting & Analytics
 
-The Analytics Workspace provides financial visibility through interactive dashboards and data analysis.
+- **Analytics Workspace**: Financial KPI dashboards, cash flow analysis, expense breakdowns, and reconciliation metrics.
+- **AI Report Generator**: Transform natural language instructions into structured, multi-section financial reports (Executive Summaries, KPIs, Charts, Tables, Recommendations).
+- **Manual Report Builder**: Drag-and-drop customization of report sections, layout ordering, and component styling.
+- **Multi-Format Export Engine**: Generate PDF reports via ReportLab, Excel spreadsheets, and CSV exports with auto-column hiding and multi-page pagination.
 
-### Features
+### 3. LLM Benchmark Lab
 
-- Financial KPI dashboards
-- Revenue analysis
-- Expense analysis
-- Profitability metrics
-- Reconciliation performance analysis
-- Transaction analytics
-- Trend analysis
-- Interactive charts and visualizations
-- Heatmaps
-- Pivot analysis
-- Financial performance insights
+- **Multi-Model Evaluation**: Compare model latency, token efficiency, response quality, and fallback rates across AI model tiers.
 
 ---
 
-## Report Creation Studio
+## 🏗️ Technology Stack
 
-The Report Creation Studio allows users to create professional financial reports using either Artificial Intelligence or manual customization.
-
-### AI Report Generation
-
-Users can describe the report they need using a natural language prompt.
-
-The system generates structured reports containing:
-
-- Executive summaries
-- Financial analysis
-- KPIs
-- Charts
-- Tables
-- Recommendations
-- Business insights
-
-### Manual Report Builder
-
-A visual drag-and-drop report creation interface.
-
-Users can:
-
-- Add KPI sections
-- Add charts
-- Insert financial tables
-- Create text sections
-- Configure report components
-- Reorder report sections
-- Preview reports
-- Save reusable templates
+| Layer        | Technology                                                  |
+| ------------ | ----------------------------------------------------------- |
+| **Frontend** | Angular 18, TypeScript, Tailwind CSS, ECharts, ngx-markdown |
+| **Backend**  | Python 3.11+, FastAPI, Uvicorn, ReportLab, Pandas           |
+| **Database** | Supabase (PostgreSQL)                                       |
+| **AI / LLM** | OpenRouter API, Multi-tier LLM Manager                      |
 
 ---
 
-## Report Management
-
-The reporting module also provides complete report lifecycle management.
-
-Features:
-
-- Report dashboard
-- Report creation workflow
-- Report templates
-- Draft reports
-- Published reports
-- Report versioning
-- Favorites
-- Report export management
-
----
-
-# 3. LLM Benchmark Lab
-
-The LLM Benchmark Lab provides tools to evaluate and compare AI models used by the platform.
-
-### Features
-
-- Multi-model comparison
-- Response performance evaluation
-- Latency measurement
-- Token usage tracking
-- Success rate analysis
-- Benchmark result visualization
-
----
-
-# Technology Stack
-
-| Layer    | Technologies                          |
-| -------- | ------------------------------------- |
-| Frontend | Angular 18, TypeScript, Tailwind CSS  |
-| Backend  | FastAPI, Python                       |
-| Database | Supabase (PostgreSQL)                 |
-| AI       | OpenRouter API, Large Language Models |
-| Charts   | Chart.js                              |
-
----
-
-# Project Structure
+## 📁 Project Structure
 
 ```text
-BankMatch-AI-Modules/
-
+financial-copilot/
 ├── backend/
 │   ├── app/
-│   │   ├── routes/
-│   │   ├── services/
-│   │   ├── models/
-│   │   └── modules/
-│   │       └── reporting/
-│   │           ├── analytics/
-│   │           ├── models/
-│   │           ├── routes/
-│   │           └── services/
-│   │
-│   ├── database/
-│   └── requirements.txt
-│
+│   │   ├── main.py                     # FastAPI entry point & CORS configuration
+│   │   ├── modules/
+│   │   │   ├── copilot/                # AI Assistant & Chat routes, benchmark, prompts
+│   │   │   └── reporting/              # Analytics, report builders, export engine, PDF generation
+│   │   └── shared/
+│   │       ├── database/               # Supabase client & data retrieval
+│   │       └── llm/                    # OpenRouter client, model tiers, context budget, fallback manager
+│   ├── requirements.txt
+│   └── .env.example
 ├── frontend/
 │   ├── src/
-│   │   ├── features/
-│   │   │   ├── copilot/
-│   │   │   ├── benchmark/
-│   │   │   └── reporting/
-│   │   │
-│   │   └── app/
-│   │
+│   │   ├── app/
+│   │   │   ├── modules/
+│   │   │   │   ├── copilot/            # AI Copilot chat components & services
+│   │   │   │   ├── benchmark/          # LLM benchmark workspace
+│   │   │   │   └── reporting/          # Analytics workspace, report creation, preview & exports
+│   │   │   ├── app.component.ts
+│   │   │   └── app.routes.ts           # Router configuration
+│   │   └── styles.css
 │   └── package.json
-│
-├── datasets/
-├── migrations/
-├── scripts/
-├── docs/
+├── datasets/                           # Sample financial transactions & reconciliation datasets
+├── supabase/                           # Database migrations & SQL setup
 └── README.md
 ```
 
 ---
 
-# Getting Started
+## 🚀 Getting Started
 
-## Prerequisites
+### Prerequisites
 
-Before running the project, install:
-
-- Python 3.11+
-- Node.js 18+
-- npm
-- Supabase project
-- OpenRouter API key
+- **Python**: 3.11 or higher
+- **Node.js**: 18.x or higher (npm included)
+- **Supabase**: Account & active PostgreSQL instance
+- **OpenRouter API Key**: For AI model generation
 
 ---
 
-# Backend Setup
+### 🧰 Backend Setup
 
-Navigate to the backend folder:
+1. **Navigate to the backend directory**:
 
-```bash
-cd backend
-```
+   ```bash
+   cd backend
+   ```
 
-Create a virtual environment:
+2. **Create and activate a virtual environment**:
+   - **Windows (PowerShell)**:
+     ```powershell
+     python -m venv venv
+     .\venv\Scripts\activate
+     ```
+   - **Linux / macOS**:
+     ```bash
+     python -m venv venv
+     source venv/bin/activate
+     ```
 
-```bash
-python -m venv venv
-```
+3. **Install dependencies**:
 
-Activate the environment:
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-### Windows
+4. **Configure environment variables**:
+   Create a `.env` file in `backend/` :
 
-```bash
-venv\Scripts\activate
-```
+   ```env
+   SUPABASE_URL=https://your-project.supabase.co
+   SUPABASE_KEY=your_supabase_anon_or_service_key
+   OPENROUTER_API_KEY=your_openrouter_api_key
+   ```
 
-### Linux / macOS
+5. **Start the API server**:
+   ```bash
+   uvicorn app.main:app --port 8000
+   ```
 
-```bash
-source venv/bin/activate
-```
-
-Install dependencies:
-
-```bash
-pip install -r requirements.txt
-```
-
-Create a `.env` file:
-
-```env
-SUPABASE_URL=your_supabase_url
-SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
-OPENROUTER_API_KEY=your_openrouter_api_key
-```
-
-Run the backend:
-
-```bash
-uvicorn app.main:app --reload
-```
-
-Backend API:
-
-```
-http://localhost:8000
-```
-
-Swagger documentation:
-
-```
-http://localhost:8000/docs
-```
+   - **API Base URL**: `http://localhost:8000`
+   - **Swagger Docs**: `http://localhost:8000/docs`
 
 ---
 
-# Frontend Setup
+### 💻 Frontend Setup
 
-Navigate to the frontend folder:
+1. **Navigate to the frontend directory**:
 
-```bash
-cd frontend
-```
+   ```bash
+   cd frontend
+   ```
 
-Install dependencies:
+2. **Install dependencies**:
 
-```bash
-npm install
-```
+   ```bash
+   npm install
+   ```
 
-Run Angular application:
-
-```bash
-npm start
-```
-
-Application:
-
-```
-http://localhost:4200
-```
+3. **Development build & check**:
+   ```bash
+   npx tsc --noEmit
+   ```
 
 ---
 
-# Main Application Routes
+## 📌 Main Frontend Routes
 
-| Route                              | Description                    |
-| ---------------------------------- | ------------------------------ |
-| `/copilot`                         | AI Financial Copilot Assistant |
-| `/benchmark`                       | LLM Benchmark Lab              |
-| `/reporting/analytics`             | Analytics Workspace            |
-| `/reporting/reports`               | Reports Dashboard              |
-| `/reporting/reports/create`        | Report Creation Workspace      |
-| `/reporting/reports/create/ai`     | AI Report Generation           |
-| `/reporting/reports/create/manual` | Manual Report Builder          |
-
----
-
-# Backend Modules
-
-## Copilot Services
-
-Responsible for:
-
-- AI conversations
-- Intent detection
-- LLM routing
-- Streaming responses
-- Financial context retrieval
-
-## Reporting & Analytics Services
-
-Responsible for:
-
-- KPI calculation
-- Financial analytics
-- Report generation
-- Report templates
-- Report versions
-- Report exports
-
-## Benchmark Services
-
-Responsible for:
-
-- AI model evaluation
-- Performance tracking
-- Benchmark comparisons
+| Route                              | Feature                       |
+| ---------------------------------- | ----------------------------- |
+| `/copilot`                         | AI Financial Copilot Chat     |
+| `/benchmark`                       | LLM Benchmark Lab             |
+| `/reporting/analytics`             | Financial Analytics Workspace |
+| `/reporting/reports`               | Report Management Dashboard   |
+| `/reporting/reports/create`        | Report Creation Studio        |
+| `/reporting/reports/create/ai`     | AI Report Generator           |
+| `/reporting/reports/create/manual` | Manual Report Builder         |
 
 ---
 
-# Future Improvements
+## 🔒 Security & Code Standards
 
-- AI financial forecasting
-- Advanced anomaly detection
-- Automated scheduled reports
-- Dashboard sharing
-- Collaborative report editing
-- ERP integrations
-- Additional visualization components
-- More AI-powered recommendations
+- Technical database columns (UUIDs, internal metadata) are automatically hidden in PDF exports unless requested.
+- AI LLM context budget is automatically validated to prevent prompt token overflow.
+- Clean separation of concerns between API routing, business analytics services, and presentation components.
 
 ---
 
-# License
+## 📜 License
 
-This project is developed as part of the BankMatch financial automation platform.
+Developed as part of the BankMatch Financial Automation Platform.

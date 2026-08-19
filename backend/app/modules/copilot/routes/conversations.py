@@ -151,8 +151,9 @@ def list_conversations(
 
         return response
     except Exception as exc:
-        logger.exception("Failed to list conversations: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        logger.warning("Failed to list conversations from Supabase (network/connection error): %s", exc)
+        return []
+
 
 
 @router.get("/conversations/{conversation_id}/messages", response_model=ConversationDetail)
