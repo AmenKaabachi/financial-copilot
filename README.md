@@ -122,6 +122,7 @@ financial-copilot/
    ```
 
 5. **Start the API server**:
+
    ```bash
    uvicorn app.main:app --port 8000
    ```
@@ -196,21 +197,26 @@ The integration layer supports the following 10 BankMatch API endpoints:
 - `GET /api/dashboard/admin`
 
 All responses follow the standard JSON envelope:
+
 ```json
 {
   "success": true,
   "data": {}
 }
 ```
-*Note: The confirmed response envelope currently consists of `success` and `data`. Additional fields must not be assumed until the final BankMatch API schema is provided.*
+
+_Note: The confirmed response envelope currently consists of `success` and `data`. Additional fields must not be assumed until the final BankMatch API schema is provided._
 
 ### Authentication
 
 All external BankMatch API requests require HTTP Bearer authentication:
+
 ```http
 Authorization: Bearer <token>
 ```
+
 To attach the real BankMatch authentication token source:
+
 - Update `BankMatchConfigService.setTokenProvider(() => getSessionToken())` located in `frontend/src/app/integrations/bankmatch/services/bankmatch-config.service.ts`.
 
 ### API Configuration
@@ -233,10 +239,8 @@ To attach the real BankMatch authentication token source:
 4. Switch `bankMatchUseMockData` to `false`.
 5. Finalize payload type mappings once the official BankMatch `data` schemas are provided, adjusting the integration mapping only where the confirmed API payload differs from the generic/mock contract.
 
-
 ---
 
 ## 📜 License
 
 Developed as part of the BankMatch Financial Automation Platform.
-
