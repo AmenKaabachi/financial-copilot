@@ -40,7 +40,7 @@ FAST_REQUEST_BUDGET_SECONDS = 12.0
 COMPLEX_REQUEST_BUDGET_SECONDS = 45.0  # Increased from 25
 REQUEST_BUDGET_SECONDS = 60.0  # Increased from 30
 
-FAST_INTENTS = {"general_knowledge", "financial_general", "greeting", "goodbye", "thanks", "small_talk", "assistant_identity", "assistant_capabilities"}
+FAST_INTENTS = {"general_knowledge", "financial_general", "greeting", "goodbye", "thanks", "small_talk", "assistant_identity", "assistant_capabilities", "report_architect"}
 
 # Streaming read timeouts (seconds) keyed by intent.
 # Connection timeout is always 10s; read timeout varies by complexity.
@@ -54,6 +54,7 @@ STREAM_READ_TIMEOUTS: Dict[str, float] = {
     "assistant_capabilities": 15,
     "general_knowledge": 30,
     "financial_general": 30,
+    "report_architect": 30,
     "invoice_lookup": 45,
     "anomaly_lookup": 45,
     "reconciliation_analysis": 60,
@@ -80,6 +81,7 @@ TOKEN_LIMITS = {
     "comparison": 2000,
     "recommendations": 3000,
     "financial_analysis": 3000,
+    "report_architect": 400,
     "general_knowledge": 800,
     "financial_general": 800,
     "greeting": 0,
@@ -475,6 +477,13 @@ def _call_model(model: ModelConfig, system_prompt: str, user_prompt: str, max_to
 
     answer = response.choices[0].message.content
     if not answer:
+        # Log the full response for debugging empty responses
+        logger.warning(
+            "Model %s returned empty response. Response object: choices=%s, usage=%s",
+            model.name,
+            len(response.choices) if hasattr(response, 'choices') else 0,
+            getattr(response, 'usage', None)
+        )
         raise ValueError(f"Model {model.name} returned an empty response")
 
     return answer, response.choices[0].finish_reason, _summarize_usage(getattr(response, "usage", None))
@@ -1005,16 +1014,19 @@ def generate_answer(prompt: str, max_tokens: int = 2000, intent: str = "unknown"
         )
 
         while True:
+            model = _select_next_model(tier_models, tier_tried, intent)
+            if model is None:
+                break  # No more models in this tier, move to next tier
+
+            # Check budget before trying model, but be lenient to allow all models a chance
             elapsed = time.perf_counter() - start_time
-            if elapsed > budget:
+            time_remaining = budget - elapsed
+            # Only fail if significantly over budget (allow 20% overage for model switching overhead)
+            if elapsed > budget * 1.2:
                 logger.error("Request exceeded time budget of %ss after %s attempts", budget, total_attempts)
                 raise AIServiceUnavailableError(
                     f"Request exceeded time budget of {budget}s"
                 )
-
-            model = _select_next_model(tier_models, tier_tried, intent)
-            if model is None:
-                break  # No more models in this tier, move to next tier
 
             tier_tried.add(model.name)
             tried.add(model.name)

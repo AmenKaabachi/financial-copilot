@@ -124,79 +124,65 @@ class AIReportService:
         additional_instructions = (contract.get("additional_instructions") or "").strip()
         report_type = contract.get("report_type") or "monthly_financial"
 
-        logger.info("[AI_ARCHITECT] ====== Begin prompt-to-definition generation ======")
-        logger.info("[AI_ARCHITECT] Input objective received (len=%d)", len(prompt))
-        logger.info("[AI_ARCHITECT] User title: %s", report_title)
+        logger.info("[AI] Report Architect started: prompt_len=%d, title=%s", len(prompt), report_title)
+
+        # Get available components from registry
+        from app.modules.reporting.analytics.component_registry import get_all_components
+        available_components = get_all_components()
+
+        # Build simplified component catalog for AI
+        component_catalog = []
+        for comp in available_components:
+            component_catalog.append({
+                "id": comp.get("id"),
+                "type": comp.get("type"),
+                "name": comp.get("name"),
+                "keywords": comp.get("keywords", []),
+                "use_cases": comp.get("use_cases", []),
+            })
 
         system_prompt = (
-            "You are a Senior Financial Reporting Architect.\n"
-            "Transform a structured report configuration into a structured report definition.\n"
-            "The user configuration is instructions and metadata, not report content.\n"
+            "You are a Report Component Selector.\n"
+            "Select existing report components from the provided catalog based on the user's objective.\n"
             "CRITICAL RULES:\n"
             "1. Return ONLY valid JSON.\n"
-            "2. Never copy/quote user instructions or configuration into the report content.\n"
-            "3. Never use instruction-oriented phrases like: 'Based on your request', 'The user requested', 'Create a report'.\n"
-            "4. The report title is user-controlled and MUST NOT be rewritten.\n"
-            "5. Generate all human-readable content in the requested language.\n"
-            "6. Audience must control tone/detail/section depth.\n"
-            "7. Reporting period controls data scope.\n"
-            "8. Additional instructions influence design but must never appear verbatim.\n"
-            "9. Never invent financial values.\n"
-            "10. Use only these section types: 'title', 'text', 'kpi', 'chart', 'table', 'ai_insight', 'page_break', 'image', 'recommendation'.\n"
-            "11. Return 4-8 sections with a professional flow.\n"
+            "2. Select component IDs ONLY from the provided catalog.\n"
+            "3. Never invent component IDs, types, or data sources.\n"
+            "4. Return 3-8 component selections.\n"
+            "5. Order components logically: KPIs first, then charts, then tables, then insights.\n"
+            "6. DO NOT explain your choices. DO NOT reason out loud. JUST return the JSON.\n"
+            "7. This is a simple selection task, not a reasoning task. Be direct.\n"
             "OUTPUT SCHEMA:\n"
-            '{"description":"Short business report description","sections":[{"type":"text","config":{"title":"...","content":"..."}},{"type":"kpi","config":{"title":"...","data_source":"revenue"}}]}'
+            '{"component_ids":["kpi_revenue","chart_reconciliation_trend","table_anomalies"]}'
         )
 
         contract_payload = {
-            "report_title": report_title,
             "objective": prompt,
             "audience": audience,
-            "language": language,
-            "period_start": period_start,
-            "period_end": period_end,
-            "additional_instructions": additional_instructions,
-            "report_type": report_type,
-            "table_limit": contract.get("table_limit"),
-            "available_data_sources": [
-                "erp_transactions",
-                "reconciliation_records",
-                "anomaly_records",
-                "expense_records",
-                "revenue_kpis",
-                "cash_flow_kpis",
-            ],
-            "report_builder_capabilities": [
-                "section_types: title,text,kpi,chart,table,ai_insight,recommendation,image,page_break",
-                "kpi data sources are computed by analytics service",
-                "charts and tables are resolved from analytics engines",
-                "pdf renderer consumes structured definition + resolved data",
-            ],
+            "component_catalog": component_catalog,
         }
-        user_instruction = "Design a structured financial report architecture from this JSON contract:\n" + json.dumps(
+        user_instruction = "Select component IDs from this catalog for the report objective:\n" + json.dumps(
             contract_payload, ensure_ascii=False
         )
 
         try:
-            logger.info("[AI_ARCHITECT] Calling LLM generate_answer (intent=financial_analysis, max_tokens=900)")
-            
-            # Call with reduced max_tokens for faster JSON generation
+            # Call with report_architect intent for lightweight JSON generation
+            # Increased max_tokens to 400 to allow room for reasoning + output
             result = generate_answer(
                 prompt=user_instruction,
                 system_prompt=system_prompt,
-                max_tokens=900,
-                intent="financial_analysis",
+                max_tokens=400,
+                intent="report_architect",
             )
-            
+
             raw_answer = result.get("answer", "").strip()
             logger.info(
-                "[AI_ARCHITECT] LLM response received | model=%s | raw_answer_len=%d | fallback_used=%s | response_time=%ss",
+                "[AI] Report Architect response: model=%s, len=%d, fallback=%s, time=%ss",
                 result.get("model", "unknown"),
                 len(raw_answer),
                 result.get("fallback_used", False),
                 result.get("response_time", 0),
             )
-            logger.info("[AI_ARCHITECT] Raw LLM answer (first 500 chars): %s", raw_answer[:500])
 
             # Clean JSON code fences
             fenced = re.search(r"```(?:json)?\s*\n?(.*?)\n?\s*```", raw_answer, re.DOTALL)
@@ -204,34 +190,59 @@ class AIReportService:
                 raw_answer = fenced.group(1).strip()
             else:
                 raw_answer = raw_answer.strip()
-            logger.info("[AI_ARCHITECT] JSON code fences cleaned, raw_answer_len=%d", len(raw_answer))
 
-            # Parse JSON
-            raw_def = json.loads(raw_answer)
-            
+            # Parse JSON with validation
+            try:
+                raw_def = json.loads(raw_answer)
+            except json.JSONDecodeError as exc:
+                # Attempt conservative JSON repair for common truncation issues
+                repaired = self._attempt_json_repair(raw_answer)
+                if repaired:
+                    raw_def = json.loads(repaired)
+                    logger.info("[AI] Report Architect JSON repaired successfully")
+                else:
+                    raise exc
+
+            # Validate component IDs against catalog
+            component_ids = raw_def.get("component_ids", [])
+            if not isinstance(component_ids, list):
+                raise ValueError("Response must contain 'component_ids' array")
+
+            # Validate each component ID exists in catalog
+            valid_ids = {comp["id"] for comp in component_catalog}
+            invalid_ids = [cid for cid in component_ids if cid not in valid_ids]
+            if invalid_ids:
+                logger.warning("[AI] Invalid component IDs selected: %s", invalid_ids)
+                # Filter to valid IDs only
+                component_ids = [cid for cid in component_ids if cid in valid_ids]
+
+            if not component_ids:
+                raise ValueError("No valid component IDs selected")
+
+            # Convert component IDs to full section definitions
+            from app.modules.reporting.analytics.component_registry import get_component_by_id
+            sections = []
+            for comp_id in component_ids:
+                comp = get_component_by_id(comp_id)
+                if comp:
+                    section = {
+                        "id": f"section_{comp_id}",
+                        "type": comp.get("type"),
+                        "config": {
+                            "title": comp.get("name"),
+                            "component_id": comp_id,
+                            # Analytics params will be resolved by analytics service
+                        }
+                    }
+                    sections.append(section)
+
             # User title is authoritative
             name = report_title
-            description = raw_def.get("description") or f"Executive financial analysis for {_format_period_for_description(period_start, period_end)}."
-            raw_sections = raw_def.get("sections", [])
-            
-            raw_section_types = [sec.get("type") for sec in raw_sections if isinstance(sec, dict)]
-            logger.info(
-                "[AI_ARCHITECT] Parsed raw definition | name=%s | description=%s | raw_section_count=%d | raw_section_types=%s",
-                name,
-                description,
-                len(raw_sections),
-                raw_section_types,
-            )
+            description = f"Financial report with {len(sections)} components for {_format_period_for_description(period_start, period_end)}."
 
             # Normalize sections through SectionNormalizer
             from app.modules.reporting.services.report_section_mapper import SectionNormalizer
-            norm_sections = SectionNormalizer.normalize_sections(raw_sections)
-            norm_section_types = [sec.get("type") for sec in norm_sections if isinstance(sec, dict)]
-            logger.info(
-                "[AI_ARCHITECT] Sections normalized | count=%d | types=%s",
-                len(norm_sections),
-                norm_section_types,
-            )
+            norm_sections = SectionNormalizer.normalize_sections(sections)
 
             definition = {
                 "name": name,
@@ -262,34 +273,19 @@ class AIReportService:
                 original_prompt=prompt,
                 architect_context=contract_payload,
             )
-            logger.info(
-                "[AI_ARCHITECT] Definition validation | is_valid=%s | errors=%s | warnings=%s | corrected=%s",
-                val_res.is_valid,
-                val_res.errors,
-                val_res.warnings,
-                val_res.corrected,
-            )
-            
+
             if not val_res.is_valid:
-                logger.warning(f"[AI_BUILDER] Validation errors found in architect definition: {val_res.errors}")
+                logger.warning("[AI] Report Architect validation failed: %s", val_res.errors)
                 # Try to fix common issues
                 definition["name"] = report_title
                 if not definition.get("sections"):
                     definition["sections"] = self._generate_heuristic_sections(prompt, language=language)
 
-            logger.info(
-                "[AI_ARCHITECT] Final definition | name=%s | description=%s | section_count=%d | section_types=%s",
-                definition["name"],
-                definition["description"],
-                len(definition["sections"]),
-                [sec.get("type") for sec in definition["sections"]],
-            )
-            logger.info("[AI_ARCHITECT] ====== End prompt-to-definition generation ======")
+            logger.info("[AI] Report Architect completed: sections=%d", len(definition["sections"]))
             return definition
 
         except json.JSONDecodeError as exc:
-            logger.warning(f"[AI_BUILDER] JSON parsing failed ({exc}) — building heuristic fallback definition")
-            logger.info("[AI_ARCHITECT] Building intelligent heuristic fallback from prompt keywords")
+            logger.warning("[AI] Report Architect JSON parsing failed: %s — using fallback", exc)
             return self._generate_intelligent_fallback(
                 prompt,
                 title=report_title,
@@ -297,10 +293,9 @@ class AIReportService:
                 context=contract_payload,
                 fallback_reason=f"JSON parsing failed: {exc}",
             )
-            
+
         except Exception as exc:
-            logger.warning(f"[AI_BUILDER] AI Report Architect generation failed ({exc}) — building heuristic fallback definition")
-            logger.info("[AI_ARCHITECT] Building intelligent heuristic fallback from prompt keywords")
+            logger.warning("[AI] Report Architect generation failed: %s — using fallback", exc)
             return self._generate_intelligent_fallback(
                 prompt,
                 title=report_title,
@@ -308,6 +303,38 @@ class AIReportService:
                 context=contract_payload,
                 fallback_reason=str(exc),
             )
+
+    def _attempt_json_repair(self, json_str: str) -> Optional[str]:
+        """
+        Attempt conservative JSON repair for common truncation issues.
+        Only repairs clearly safe cases (missing closing brackets/braces).
+        Returns None if repair is uncertain.
+        """
+        stripped = json_str.strip()
+        if not stripped:
+            return None
+
+        # Count brackets to detect common truncation
+        open_braces = stripped.count('{')
+        close_braces = stripped.count('}')
+        open_brackets = stripped.count('[')
+        close_brackets = stripped.count(']')
+
+        # Only repair if we have more opens than closes (truncation)
+        if open_braces > close_braces or open_brackets > close_brackets:
+            # Add missing closing braces/braces
+            repaired = stripped
+            repaired += '}' * (open_braces - close_braces)
+            repaired += ']' * (open_brackets - close_brackets)
+
+            # Validate the repaired JSON
+            try:
+                json.loads(repaired)
+                return repaired
+            except json.JSONDecodeError:
+                return None
+
+        return None
 
     def _generate_heuristic_sections(self, prompt: str, language: str = "en") -> List[Dict[str, Any]]:
         """Generate sections based on prompt keywords (used as fallback or enhancement)."""

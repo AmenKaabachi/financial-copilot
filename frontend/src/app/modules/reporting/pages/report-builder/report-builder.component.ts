@@ -5,6 +5,8 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterModule } from '@angular/router';
 import { ReportDefinition, ExportJobStatus } from '../../models/reporting.models';
 import { ExportService } from '../../services/export.service';
+import { Subject, timer } from 'rxjs';
+import { takeUntil, takeWhile, switchMap } from 'rxjs/operators';
 
 interface SectionNode {
   id: string;
@@ -49,7 +51,7 @@ export class ReportBuilderComponent implements OnInit, OnDestroy {
   showExportProgress = false;
   exportProgress = 0;
   exportStep = '';
-  private exportPollTimer: any = null;
+  private destroy$ = new Subject<void>();
 
   // Versions
   versions: any[] = [];
@@ -177,23 +179,20 @@ export class ReportBuilderComponent implements OnInit, OnDestroy {
   ) {}
 
   ngOnInit(): void {
-    console.log('[ReportBuilder] ngOnInit triggered');
     // Check if we have a report ID from the route
-    this.route.params.subscribe(params => {
+    this.route.params.pipe(takeUntil(this.destroy$)).subscribe(params => {
       const reportId = params['id'];
-      console.log(`[ReportBuilder] Route parameter 'id':`, reportId);
       if (reportId) {
-        console.log(`[ReportBuilder] Calling loadReport(${reportId})`);
         this.loadReport(reportId);
       } else {
-        console.log(`[ReportBuilder] No report ID found, loading all reports`);
         this.loadReports();
       }
     });
   }
 
   ngOnDestroy(): void {
-    this.stopExportPolling();
+    this.destroy$.next();
+    this.destroy$.complete();
   }
 
   loadReports(): void {
@@ -212,22 +211,18 @@ export class ReportBuilderComponent implements OnInit, OnDestroy {
   }
 
   loadReport(reportId: string): void {
-    console.log(`[ReportBuilder] Executing HTTP GET to /api/reporting/builder/reports/${reportId}`);
-    this.http.get<{ status: string; data: ReportDefinition }>(`/api/reporting/builder/reports/${reportId}`).subscribe({
+    this.http.get<{ status: string; data: ReportDefinition }>(`/api/reporting/builder/reports/${reportId}`).pipe(takeUntil(this.destroy$)).subscribe({
       next: (res) => {
-        console.log(`[ReportBuilder] Received HTTP Response:`, res);
         if (res.status === 'ok') {
-          console.log(`[ReportBuilder] Mapping to selectedReport model.`);
           this.selectedReport = res.data;
           this.parseDefinition(res.data.definition);
           this.loadVersions();
-        } else {
-          console.log(`[ReportBuilder] HTTP Response status was not ok`);
+          console.log(`[ReportBuilder] Report loaded: ${reportId.substring(0, 8)}...`);
         }
         this.loading = false;
       },
       error: (err) => {
-        console.error(`[ReportBuilder] HTTP request failed:`, err);
+        console.error(`[ReportBuilder] Failed to load report: ${err.message || 'Unknown error'}`);
         this.error = true;
         this.loading = false;
       },
@@ -412,45 +407,49 @@ export class ReportBuilderComponent implements OnInit, OnDestroy {
   }
 
   private startExportPolling(jobId: string): void {
-    this.stopExportPolling();
-    this.exportPollTimer = setInterval(() => {
-      this.exportService.getExportJobStatus(jobId).subscribe({
-        next: (res) => {
-          if (res.status === 'ok' && res.data) {
-            const job = res.data;
-            this.exportProgress = job.progress || 0;
-            this.exportStep = job.current_step || 'Processing...';
+    this.exportStatus = 'processing';
+    this.showExportProgress = true;
+    this.exportProgress = 0;
+    this.exportStep = 'Initializing export...';
 
-            if (job.status === 'completed') {
-              this.stopExportPolling();
-              this.exportProgress = 100;
-              this.exportStep = 'Completed';
-              this.exportStatus = 'done';
-              // Download the file
-              this.downloadCompletedExport(jobId);
-            } else if (job.status === 'failed') {
-              this.stopExportPolling();
-              this.exportStatus = 'failed';
-              this.exportStep = job.error_message || 'Export failed.';
-              setTimeout(() => { this.showExportProgress = false; }, 3000);
-            }
+    timer(0, 1500).pipe(
+      switchMap(() => this.exportService.getExportJobStatus(jobId)),
+      takeWhile((res) => {
+        if (res.status === 'ok' && res.data) {
+          const job = res.data;
+          this.exportProgress = job.progress || 0;
+          this.exportStep = job.current_step || 'Processing...';
+
+          // Continue polling if status is not terminal
+          return job.status !== 'completed' && job.status !== 'failed';
+        }
+        return true;
+      }, true), // inclusive: true - emit the final value before completing
+      takeUntil(this.destroy$)
+    ).subscribe({
+      next: (res) => {
+        if (res.status === 'ok' && res.data) {
+          const job = res.data;
+
+          if (job.status === 'completed') {
+            this.exportProgress = 100;
+            this.exportStep = 'Completed';
+            this.exportStatus = 'done';
+            // Download the file
+            this.downloadCompletedExport(jobId);
+          } else if (job.status === 'failed') {
+            this.exportStatus = 'failed';
+            this.exportStep = job.error_message || 'Export failed.';
+            setTimeout(() => { this.showExportProgress = false; }, 3000);
           }
-        },
-        error: (err) => {
-          console.error('[ReportBuilder] Export status polling error:', err);
-          this.stopExportPolling();
-          this.exportStatus = 'failed';
-          this.exportStep = 'Failed to check export status.';
-        },
-      });
-    }, 1500);
-  }
-
-  private stopExportPolling(): void {
-    if (this.exportPollTimer) {
-      clearInterval(this.exportPollTimer);
-      this.exportPollTimer = null;
-    }
+        }
+      },
+      error: (err) => {
+        console.error('[ReportBuilder] Export status polling error:', err);
+        this.exportStatus = 'failed';
+        this.exportStep = 'Failed to check export status.';
+      },
+    });
   }
 
   private downloadCompletedExport(jobId: string): void {

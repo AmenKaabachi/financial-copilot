@@ -73,6 +73,7 @@ MODEL_ROUTING = {
     # Simple lookups — fast models only (tier 1)
     "INVOICE_LOOKUP": ["openai/gpt-oss-20b:free", "google/gemma-4-26b-a4b-it:free", "poolside/laguna-xs-2.1:free"],
     "ANOMALY_LOOKUP": ["openai/gpt-oss-20b:free", "google/gemma-4-26b-a4b-it:free", "poolside/laguna-xs-2.1:free"],
+    "REPORT_ARCHITECT": ["openai/gpt-oss-20b:free", "google/gemma-4-26b-a4b-it:free", "poolside/laguna-xs-2.1:free"],
     # Medium complexity — fast + medium models (tiers 1-2)
     "RECONCILIATION_ANALYSIS": ["openai/gpt-oss-20b:free", "google/gemma-4-26b-a4b-it:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"],
     "COMPARISON": ["openai/gpt-oss-20b:free", "google/gemma-4-26b-a4b-it:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"],
@@ -96,8 +97,10 @@ def _get_pool_for_intent(intent: Optional[str] = None) -> List[ModelConfig]:
     elif intent in ("general_knowledge", "financial_general"):
         # Accounting definitions ("what is EBITDA", "explain depreciation") use fastest pool
         return ACCOUNTING_KNOWLEDGE_POOL
+    elif intent in ("report_architect", "anomaly_lookup", "invoice_lookup"):
+        # Report architect and simple lookups use fast pool only
+        return FAST_POOL
     elif intent in (
-        "anomaly_lookup",
         "reconciliation_analysis",
         "report_summary",
         "dataset_review",
@@ -105,7 +108,6 @@ def _get_pool_for_intent(intent: Optional[str] = None) -> List[ModelConfig]:
         "comparison",
         "recommendations",
         "financial_analysis",
-        "invoice_lookup",
     ):
         return FINANCIAL_ANALYSIS_POOL
     else:
@@ -149,6 +151,14 @@ def get_model_tiers(intent: Optional[str] = None) -> List[ModelTier]:
 
     # Build tiered fallback list
     tiers = []
+
+    # Report architect uses fast pool with shorter per-model timeout to allow multiple attempts
+    if intent == "report_architect":
+        if primary_enabled:
+            # Use 4s per-model timeout to allow trying all 3 fast models within 12s budget
+            # 4s is more realistic for free models that may be slower
+            tiers.append(ModelTier(models=primary_enabled, timeout=4.0))
+        return tiers
 
     # Tier 1: Primary pool with 8s timeout
     if primary_enabled:

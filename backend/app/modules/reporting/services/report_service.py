@@ -312,10 +312,6 @@ class ReportService:
                             sec_config["limit"] = table_limit
                             sec["config"] = sec_config
 
-            logger.info(f"[AI_BUILDER] Generated sections: {section_types}")
-            logger.info("[AI_BUILDER] Validation passed")
-            logger.info("[AI_BUILDER] Saving report definition")
-
             # Build UI structure representation
             structure = []
             for sec in sections:
@@ -332,18 +328,8 @@ class ReportService:
             ai_generation_success = bool(generation_info.get("ai_generated", True))
             fallback_used = bool(generation_info.get("fallback_used", False))
 
-            # Log the full generation context for debugging
-            logger.info("[AI_BUILDER] Reporting period: %s → %s", period_start, period_end)
-            logger.info("[AI_BUILDER] Audience: %s", audience)
-            logger.info("[AI_BUILDER] Language: %s", language)
-            logger.info("[AI_BUILDER] Additional instructions: %s", additional_instructions)
-            logger.info(
-                "[AI_BUILDER] AI generation attempted=%s | success=%s | fallback_used=%s | model=%s",
-                ai_generation_attempted,
-                ai_generation_success,
-                fallback_used,
-                generation_info.get("model", "unknown"),
-            )
+            if fallback_used:
+                logger.info("[AI] Report Architect fallback used: %s", generation_info.get("fallback_reason", "unknown"))
 
             return {
                 "title": report_title,

@@ -36,12 +36,10 @@ def list_reports(
 
 @router.get("/reports/{report_id}")
 def get_report(report_id: str):
-    logger.info(f"[Builder API] GET /reports/{report_id} called")
     report = ReportService.get_report(report_id)
     if not report:
-        logger.warning(f"[Builder API] GET /reports/{report_id} - Report not found in DB")
+        logger.warning(f"[Builder API] Report not found: {report_id}")
         return {"status": "error", "message": "Report not found"}
-    logger.info(f"[Builder API] GET /reports/{report_id} - Successfully retrieved report {report_id}")
     return {"status": "ok", "data": report}
 
 

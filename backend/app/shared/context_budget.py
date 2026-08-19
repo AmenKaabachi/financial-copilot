@@ -25,6 +25,7 @@ MIN_OUTPUT_BY_INTENT: Dict[str, int] = {
     "comparison": 500,
     "recommendations": 400,
     "financial_analysis": 600,
+    "report_architect": 200,
     "general_knowledge": 400,
     "financial_general": 400,
     "greeting": 0,
@@ -189,7 +190,7 @@ def log_diagnostics(
     context_tokens = count_tokens(context)
     user_tokens = count_tokens(user_prompt)
     
-    logger.warning(
+    logger.debug(
         "========== PROMPT DIAGNOSTICS ==========\n"
         "Model: %s\n"
         "Model context limit: %s\n"
@@ -223,7 +224,7 @@ def log_diagnostics(
     
     # If context is suspiciously large, log a sample
     if context_tokens > 5000:
-        logger.warning(
+        logger.debug(
             "LARGE CONTEXT DETECTED (tokens=%s). First 500 chars:\n%s\n...\nLast 500 chars:\n%s",
             context_tokens,
             context[:500],

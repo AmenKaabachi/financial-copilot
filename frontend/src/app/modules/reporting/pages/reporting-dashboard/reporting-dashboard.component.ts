@@ -121,12 +121,9 @@ export class ReportingDashboardComponent implements OnInit {
     this.http.get<{ status: string; data: DashboardSummary }>('/api/reporting/dashboard')
       .subscribe({
         next: (res) => {
-          console.log('[Dashboard Response]', res);
-
           if (res.status === 'ok') {
             this.summary = res.data;
           }
-
           this.loading = false;
         },
         error: (err) => {
