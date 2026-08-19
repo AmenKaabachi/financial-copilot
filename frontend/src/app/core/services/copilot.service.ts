@@ -24,7 +24,7 @@ export interface CopilotStreamEvent {
 })
 export class CopilotService {
   private http = inject(HttpClient);
-  private apiUrl = `${environment.apiUrl}/copilot/chat`;
+  private apiUrl = `${environment.apiUrl}/api/copilot/chat`;
 
   askQuestion(request: CopilotRequest & { conversation_id?: string }): Observable<CopilotResponse> {
     return this.http.post<CopilotResponse>(this.apiUrl, request).pipe(

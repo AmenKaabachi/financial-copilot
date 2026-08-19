@@ -10,7 +10,7 @@ import { BenchmarkRequest, BenchmarkResponse } from './benchmark.models';
 })
 export class BenchmarkService {
   private http = inject(HttpClient);
-  private apiUrl = `${environment.apiUrl}/copilot/benchmark`;
+  private apiUrl = `${environment.apiUrl}/api/copilot/benchmark`;
 
   runBenchmark(request: BenchmarkRequest): Observable<BenchmarkResponse> {
     return this.http.post<BenchmarkResponse>(this.apiUrl, request).pipe(
