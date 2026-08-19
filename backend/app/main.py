@@ -10,6 +10,7 @@ from app.modules.reporting.routes.reports import router as reporting_router
 from app.modules.reporting.routes.dashboard import router as dashboard_router
 from app.modules.reporting.routes.analytics import router as analytics_router
 from app.modules.reporting.routes.builder import router as builder_router
+from app.integrations.bankmatch.router import router as bankmatch_router
 
 
 app = FastAPI(
@@ -17,6 +18,7 @@ app = FastAPI(
     description="Intelligent financial assistant",
     version="1.0"
 )
+
 
 
 origins = [
@@ -90,6 +92,14 @@ app.include_router(
     prefix="/api/reporting/builder",
     tags=["Report Builder"]
 )
+
+# BankMatch Mock/Integration Router
+app.include_router(
+    bankmatch_router,
+    prefix="/api",
+    tags=["BankMatch Integration"]
+)
+
 
 
 # =========================

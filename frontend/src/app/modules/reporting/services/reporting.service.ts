@@ -39,13 +39,19 @@ export interface PivotRow {
   average?: number;
 }
 
+import { BankMatchIntegrationService } from '../../../integrations/bankmatch';
+
 @Injectable({
   providedIn: 'root',
 })
 export class ReportingService {
   private apiUrl = '/api/reporting';
 
-  constructor(private http: HttpClient) {}
+  constructor(
+    private http: HttpClient,
+    private bankMatchService: BankMatchIntegrationService
+  ) {}
+
 
   // Dashboard
   getDashboard(): Observable<{ status: string; data: DashboardSummary }> {
@@ -177,4 +183,10 @@ export class ReportingService {
     if (params?.limit) httpParams = httpParams.set('limit', params.limit.toString());
     return this.http.get<{ status: string; data: ComponentPreview }>(`${this.apiUrl}/builder/analytics-components/${componentId}/preview`, { params: httpParams });
   }
+
+  // BankMatch Integration Data Delegation
+  getBankMatchEndpointData<T = unknown>(endpointPath: string): Observable<T> {
+    return this.bankMatchService.getEndpointData<T>(endpointPath);
+  }
 }
+

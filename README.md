@@ -45,6 +45,8 @@ financial-copilot/
 ├── backend/
 │   ├── app/
 │   │   ├── main.py                     # FastAPI entry point & CORS configuration
+│   │   ├── integrations/
+│   │   │   └── bankmatch/              # BankMatch API integration & mock boundary
 │   │   ├── modules/
 │   │   │   ├── copilot/                # AI Assistant & Chat routes, benchmark, prompts
 │   │   │   └── reporting/              # Analytics, report builders, export engine, PDF generation
@@ -56,6 +58,8 @@ financial-copilot/
 ├── frontend/
 │   ├── src/
 │   │   ├── app/
+│   │   │   ├── integrations/
+│   │   │   │   └── bankmatch/          # BankMatch API integration & mock boundary
 │   │   │   ├── modules/
 │   │   │   │   ├── copilot/            # AI Copilot chat components & services
 │   │   │   │   ├── benchmark/          # LLM benchmark workspace
@@ -170,6 +174,69 @@ financial-copilot/
 
 ---
 
+## 🏦 BankMatch Integration
+
+### Current Status
+
+The project is prepared and structured for BankMatch API integration. It currently operates using contract-compatible mock data (`BankMatchResponse<T = unknown>`) because the real development API URL, test accounts, and authentication credentials are not yet available.
+
+### Expected API Endpoints
+
+The integration layer supports the following 10 BankMatch API endpoints:
+
+- `GET /api/enterprise-reporting/kpis`
+- `GET /api/enterprise-reporting/trends`
+- `GET /api/enterprise-reporting/match-rate-distribution`
+- `GET /api/enterprise-reporting/top-anomalies`
+- `GET /api/enterprise-reporting/exceptions`
+- `GET /api/enterprise-reporting/exception-aging`
+- `GET /api/enterprise-reporting/root-causes`
+- `GET /api/enterprise-reporting/executive-overview`
+- `GET /api/dashboard/comptable`
+- `GET /api/dashboard/admin`
+
+All responses follow the standard JSON envelope:
+```json
+{
+  "success": true,
+  "data": {}
+}
+```
+*Note: The confirmed response envelope currently consists of `success` and `data`. Additional fields must not be assumed until the final BankMatch API schema is provided.*
+
+### Authentication
+
+All external BankMatch API requests require HTTP Bearer authentication:
+```http
+Authorization: Bearer <token>
+```
+To attach the real BankMatch authentication token source:
+- Update `BankMatchConfigService.setTokenProvider(() => getSessionToken())` located in `frontend/src/app/integrations/bankmatch/services/bankmatch-config.service.ts`.
+
+### API Configuration
+
+- **Frontend Configuration**: Modify `bankMatchApiBaseUrl` and `bankMatchUseMockData` in `frontend/src/environments/environment.ts`.
+- **Backend Configuration**: Set `BANKMATCH_API_BASE_URL` and `BANKMATCH_USE_MOCK_DATA` in `backend/.env`.
+
+### Mock Mode & Data Location
+
+- **Mock Mode Toggle**: Set `bankMatchUseMockData: true` (frontend) / `BANKMATCH_USE_MOCK_DATA=true` (backend).
+- **Frontend Mock Data**: `frontend/src/app/integrations/bankmatch/mocks/bankmatch-mock-data.ts`
+- **Backend Mock Data**: `backend/app/integrations/bankmatch/mock_data.py`
+- **Switching to Real API**: Set `bankMatchUseMockData: false`, provide `bankMatchApiBaseUrl`, and connect the authentication token provider.
+
+### Integration Steps for Dhirar
+
+1. Obtain the real BankMatch development/staging API base URL.
+2. Set `bankMatchApiBaseUrl` in `frontend/src/environments/environment.ts` (and `.env` for backend if proxying).
+3. Connect the central authentication session to `BankMatchConfigService.setTokenProvider()`.
+4. Switch `bankMatchUseMockData` to `false`.
+5. Finalize payload type mappings once the official BankMatch `data` schemas are provided, adjusting the integration mapping only where the confirmed API payload differs from the generic/mock contract.
+
+
+---
+
 ## 📜 License
 
 Developed as part of the BankMatch Financial Automation Platform.
+
