@@ -106,21 +106,6 @@
           </svg>
         </a>
 
-        <div class="relative export-dropdown">
-          <button (click)="toggleExportMenu(report.id)" [class]="isExportMenuOpen(report.id) ? 'bg-[#F7F8FA] text-[#0F172A]' : 'text-[#6B7280]'" class="flex items-center justify-center w-8 h-8 rounded-md transition-all duration-200 hover:bg-[#F7F8FA] hover:text-[#0F172A]">
-            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-              <polyline points="7 10 12 15 17 10"/>
-              <line x1="12" y1="15" x2="12" y2="3"/>
-            </svg>
-          </button>
-          <div *ngIf="isExportMenuOpen(report.id)" class="export-menu absolute right-0 top-full mt-1 bg-white border border-[#E7E9EE] rounded-md shadow-lg z-50 min-w-[100px] p-1">
-            <button (click)="exportReport(report.id, 'pdf')" class="w-full text-left px-3 py-1.5 text-sm text-[#334155] rounded transition-all duration-200 hover:bg-[#F7F8FA]">PDF</button>
-            <button (click)="exportReport(report.id, 'excel')" class="w-full text-left px-3 py-1.5 text-sm text-[#334155] rounded transition-all duration-200 hover:bg-[#F7F8FA]">Excel</button>
-            <button (click)="exportReport(report.id, 'csv')" class="w-full text-left px-3 py-1.5 text-sm text-[#334155] rounded transition-all duration-200 hover:bg-[#F7F8FA]">CSV</button>
-          </div>
-        </div>
-
         <button (click)="deleteReport(report.id)" class="flex items-center justify-center w-8 h-8 text-[#6B7280] rounded-md transition-all duration-200 hover:bg-red-50 hover:text-[#EF4444]">
           <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="3 6 5 6 21 6"/>

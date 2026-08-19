@@ -1,4 +1,4 @@
-import { Component, OnInit, HostListener } from '@angular/core';
+import { Component, OnInit } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -24,15 +24,6 @@ interface DashboardSummary {
   favorite_reports: ReportSummary[];
 }
 
-interface ExportJob {
-  id: string;
-  report_id: string;
-  format: string;
-  status: string;
-  file_url: string;
-  requested_at: string;
-}
-
 @Component({
   selector: 'app-reporting-dashboard',
   standalone: true,
@@ -43,7 +34,6 @@ interface ExportJob {
 export class ReportingDashboardComponent implements OnInit {
   summary: DashboardSummary | null = null;
   reports: ReportSummary[] = [];
-  exports: Record<string, ExportJob[]> = {};
   loading = true;
   error = false;
   showCreateModal = false;
@@ -57,19 +47,7 @@ export class ReportingDashboardComponent implements OnInit {
   bulkDeleting = false;
   notification: { type: 'success' | 'error'; message: string } | null = null;
 
-  // Export dropdown state (per report)
-  openExportMenuId: string | null = null;
-
   constructor(private http: HttpClient) {}
-
-  // Close export dropdown when clicking outside
-  @HostListener('document:click', ['$event'])
-  onDocumentClick(event: MouseEvent): void {
-    const target = event.target as HTMLElement;
-    if (!target.closest('.export-dropdown')) {
-      this.openExportMenuId = null;
-    }
-  }
 
   // ------------------------------------------------------------------
   // Selection helpers
@@ -140,19 +118,6 @@ export class ReportingDashboardComponent implements OnInit {
       next: (res) => {
         if (res.status === 'ok') {
           this.reports = res.data;
-          this.reports.forEach(r => this.loadExports(r.id));
-        }
-      },
-      error: () => {},
-    });
-  }
-
-  loadExports(reportId: string): void {
-    // ✅ Added /api prefix
-    this.http.get<{ status: string; data: ExportJob[] }>(`/api/reporting/builder/reports/${reportId}/exports`).subscribe({
-      next: (res) => {
-        if (res.status === 'ok') {
-          this.exports[reportId] = res.data;
         }
       },
       error: () => {},
@@ -244,14 +209,6 @@ export class ReportingDashboardComponent implements OnInit {
     });
   }
 
-  toggleExportMenu(reportId: string): void {
-    this.openExportMenuId = this.openExportMenuId === reportId ? null : reportId;
-  }
-
-  isExportMenuOpen(reportId: string): boolean {
-    return this.openExportMenuId === reportId;
-  }
-
   showNotification(type: 'success' | 'error', message: string): void {
     this.notification = { type, message };
     setTimeout(() => { this.notification = null; }, 4000);
@@ -274,25 +231,6 @@ export class ReportingDashboardComponent implements OnInit {
     });
   }
 
-  exportReport(reportId: string, format: string): void {
-    this.openExportMenuId = null;
-    // ✅ Added /api prefix
-    this.http.post<{ status: string; data: ExportJob }>(`/api/reporting/builder/reports/${reportId}/export`, { format }).subscribe({
-      next: (res) => {
-        if (res.status === 'ok') {
-          if (!this.exports[reportId]) this.exports[reportId] = [];
-          this.exports[reportId].unshift(res.data);
-          this.showNotification('success', `Export (${format.toUpperCase()}) started.`);
-        } else {
-          this.showNotification('error', 'Failed to start export.');
-        }
-      },
-      error: () => {
-        this.showNotification('error', 'Failed to start export.');
-      },
-    });
-  }
-
   getStatusClass(status: string): string {
     const map: Record<string, string> = {
       draft: 'status-draft',
@@ -300,16 +238,6 @@ export class ReportingDashboardComponent implements OnInit {
       archived: 'status-archived',
     };
     return map[status] || 'status-draft';
-  }
-
-  getExportStatusClass(status: string): string {
-    const map: Record<string, string> = {
-      queued: 'export-queued',
-      processing: 'export-processing',
-      done: 'export-done',
-      failed: 'export-failed',
-    };
-    return map[status] || 'export-queued';
   }
 
   formatDate(dateStr: string): string {
