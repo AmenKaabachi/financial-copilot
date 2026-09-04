@@ -128,15 +128,27 @@ def get_model_context_limit(model_name: str) -> int:
         "gpt-4o": 128000,
         "gpt-3.5-turbo": 16385,
         "gpt-oss": 32768,       # openai/gpt-oss-20b
+        # InclusionAI
+        "ling": 32768,            # inclusionai/ling-3.0-flash-fin
+        # Liquid AI
+        "lfm": 32768,             # liquid/lfm-2.5-2.6b
+        # Thinking Machines
+        "inkling": 32768,         # thinkingmachines/inkling-small
+        # Cohere
+        "north-mini": 32768,      # cohere/north-mini-code
+        # Z-AI
+        "glm": 131072,            # z-ai/glm-5.2
+        # MiniMax
+        "minimax": 131072,        # minimax/minimax-m3, minimax/minimax-m2.7
         # Google
-        "gemma": 8192,           # google/gemma-4-26b-a4b-it, google/gemma-4-31b-it
+        "gemma": 8192,            # google/gemma-4-26b-a4b-it, google/gemma-4-31b-it
         # NVIDIA Nemotron
-        "nemotron-3-nano": 32768,  # nvidia/nemotron-3-nano-omni-30b-a3b-reasoning, nvidia/nemotron-3-nano-30b-a3b
-        "nemotron-nano": 32768,    # nvidia/nemotron-nano-9b-v2
+        "nemotron-3.5": 131072,   # nvidia/nemotron-3.5-lightning
+        "nemotron-3-nano": 32768, # nvidia/nemotron-3-nano-omni-30b-a3b-reasoning
         "nemotron-3-ultra": 131072, # nvidia/nemotron-3-ultra-550b-a55b
         "nemotron-3-super": 131072, # nvidia/nemotron-3-super-120b-a12b
         # Poolside
-        "laguna": 32768,         # poolside/laguna-xs-2.1
+        "laguna": 32768,          # poolside/laguna-xs-2.1, poolside/laguna-s-2.1
         # Other common models
         "qwen": 32768,
         "qwen-turbo": 32768,

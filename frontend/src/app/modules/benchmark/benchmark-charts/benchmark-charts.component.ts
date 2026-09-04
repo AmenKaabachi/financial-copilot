@@ -57,15 +57,21 @@ export class BenchmarkChartsComponent implements AfterViewInit, OnChanges {
 
   private getModelShortName(modelId: string): string {
     const map: Record<string, string> = {
-      'openai/gpt-oss-20b:free': 'GPT OSS 20B',
+      'inclusionai/ling-3.0-flash-fin:free': 'Ling 3.0 Flash Fin',
+      'nvidia/nemotron-3.5-lightning:free': 'Nemotron 3.5 Lightning',
+      'cohere/north-mini-code:free': 'Cohere North Mini',
       'google/gemma-4-26b-a4b-it:free': 'Gemma 26B A4B',
       'poolside/laguna-xs-2.1:free': 'Laguna XS 2.1',
+      'liquid/lfm-2.5-2.6b:free': 'Liquid LFM 2.6B',
+      'thinkingmachines/inkling-small:free': 'Inkling Small',
       'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free': 'Nemotron Omni 30B',
-      'nvidia/nemotron-3-nano-30b-a3b:free': 'Nemotron Nano 30B',
-      'nvidia/nemotron-nano-9b-v2:free': 'Nemotron Nano 9B',
-      'google/gemma-4-31b-it:free': 'Gemma 31B IT',
+      'poolside/laguna-s-2.1:free': 'Laguna S 2.1',
+      'z-ai/glm-5.2:free': 'GLM 5.2',
+      'minimax/minimax-m2.7:free': 'MiniMax M2.7',
       'nvidia/nemotron-3-ultra-550b-a55b:free': 'Nemotron Ultra 550B',
       'nvidia/nemotron-3-super-120b-a12b:free': 'Nemotron Super 120B',
+      'minimax/minimax-m3:free': 'MiniMax M3',
+      'google/gemma-4-31b-it:free': 'Gemma 31B IT',
     };
     return map[modelId] || modelId.split('/').pop() || modelId;
   }

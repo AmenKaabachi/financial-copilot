@@ -1,3 +1,4 @@
+import json
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
@@ -44,10 +45,9 @@ def run_benchmark(request: BenchmarkRequest):
 
     context, _ = _build_context(request.question, intent_result, session_id=session_id)
 
-    user_prompt = build_system_prompt(context_str=context, intent=intent_name) if context else ""
     user_prompt = build_user_prompt(context=context, question=request.question, intent=intent_result.intent)
-    context_str = context if isinstance(context, str) else ""
-    system_prompt = build_system_prompt(context_str, intent=intent_name)
+    context_str = json.dumps(context) if isinstance(context, dict) else (context or "")
+    system_prompt = build_system_prompt(context=context_str, intent=intent_name)
 
     max_tokens = request.max_tokens or 800
     temperature = request.temperature if request.temperature is not None else 0.2

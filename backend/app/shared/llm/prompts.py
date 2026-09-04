@@ -13,7 +13,7 @@ CONTINUATION_USER_MESSAGE = (
 )
 
 
-def build_system_prompt(context: str, intent: Optional[str] = None) -> str:
+def build_system_prompt(context: str = "", intent: Optional[str] = None, context_str: Optional[str] = None, **kwargs) -> str:
     """
     Build the system prompt with the given financial context injected.
 
@@ -37,7 +37,7 @@ def build_system_prompt(context: str, intent: Optional[str] = None) -> str:
 
 
 # ── Full system prompt (complex analysis, dataset review, recommendations) ──
-FINANCIAL_COPILOT_SYSTEM_PROMPT_TEMPLATE = """
+FINANCIAL_COPILOT_SYSTEM_PROMPT_TEMPLATE = r"""
 You are an AI Financial Copilot, a senior accounting assistant embedded in a company's ERP system. Your mission is to help accountants analyze financial data and understand accounting concepts.
 
 <context>

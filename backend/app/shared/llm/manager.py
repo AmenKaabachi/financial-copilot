@@ -33,14 +33,86 @@ logger = logging.getLogger(__name__)
 MAX_RETRIES = 1
 FAILURE_THRESHOLD = 3
 MODEL_COOLDOWN_SECONDS = 60
+PERMANENT_COOLDOWN_SECONDS = 86400  # 24 hours for permanent 404 / unavailable models
 RETRYABLE_STATUS_CODES = {500, 502, 503, 504}
 
 # Increased timeouts for better reliability with free models
-FAST_REQUEST_BUDGET_SECONDS = 12.0
-COMPLEX_REQUEST_BUDGET_SECONDS = 45.0  # Increased from 25
-REQUEST_BUDGET_SECONDS = 60.0  # Increased from 30
+ARCHITECT_REQUEST_BUDGET_SECONDS = 45.0  # Increased for report architect multi-model attempts
+FAST_REQUEST_BUDGET_SECONDS = 30.0       # Increased from 12.0
+COMPLEX_REQUEST_BUDGET_SECONDS = 45.0    # Increased from 25
+REQUEST_BUDGET_SECONDS = 60.0            # Overall streaming timeout budget
 
-FAST_INTENTS = {"general_knowledge", "financial_general", "greeting", "goodbye", "thanks", "small_talk", "assistant_identity", "assistant_capabilities", "report_architect"}
+FAST_INTENTS = {"general_knowledge", "financial_general", "greeting", "goodbye", "thanks", "small_talk", "assistant_identity", "assistant_capabilities"}
+
+
+def _format_error(error: Exception) -> str:
+    """
+    Extract a concise, human-readable one-line summary from an LLM provider error.
+    Strips away verbose JSON bodies, metadata, and OpenRouter boilerplate.
+    
+    Examples:
+        Input:  "Error code: 429 - {'error': {'message': 'Provider returned error', 'code': 429, 'metadata': {'raw': 'google/gemma-4-26b-a4b-it:free is temporarily rate-limited upstream...', 'provider_name': 'Google AI Studio', ...}}}"
+        Output: "429: rate-limited upstream [Google AI Studio]"
+    """
+    err_str = str(error)
+
+    # --- APIStatusError with structured body ---
+    if isinstance(error, APIStatusError):
+        code = getattr(error, "status_code", "?")
+        body = getattr(error, "body", None)
+        if isinstance(body, dict):
+            err_data = body.get("error", body)
+            # Try to get the short 'raw' provider message
+            meta = err_data.get("metadata", {}) if isinstance(err_data, dict) else {}
+            raw = meta.get("raw", "")
+            provider = meta.get("provider_name", "")
+            if raw:
+                # Trim the raw message to essentials
+                short_raw = raw.split(".")[0].strip()  # First sentence only
+                if len(short_raw) > 120:
+                    short_raw = short_raw[:120] + "…"
+                suffix = f" [{provider}]" if provider else ""
+                return f"{code}: {short_raw}{suffix}"
+            # Fall back to the top-level message
+            msg = err_data.get("message", "") if isinstance(err_data, dict) else str(err_data)
+            if msg:
+                suffix = f" [{provider}]" if provider else ""
+                return f"{code}: {msg}{suffix}"
+        # Simple APIStatusError without structured body
+        return f"{code}: {error.message}" if hasattr(error, "message") else f"{code}: {err_str[:120]}"
+
+    # --- Connection / Timeout errors ---
+    if isinstance(error, APITimeoutError):
+        return "Timeout: request timed out"
+    if isinstance(error, APIConnectionError):
+        return "Connection error: could not reach provider"
+
+    # --- Generic exceptions: extract first meaningful line ---
+    # Strip "Error code: NNN - {json}" pattern
+    match = re.match(r"Error code:\s*(\d+)\s*-\s*(.+)", err_str, re.DOTALL)
+    if match:
+        code = match.group(1)
+        remainder = match.group(2).strip()
+        # Try to parse the embedded dict-like string for 'raw' or 'message'
+        raw_match = re.search(r"'raw':\s*'([^']{5,}?)'", remainder)
+        provider_match = re.search(r"'provider_name':\s*'([^']+)'", remainder)
+        provider = provider_match.group(1) if provider_match else ""
+        if raw_match:
+            short_raw = raw_match.group(1).split(".")[0].strip()
+            if len(short_raw) > 120:
+                short_raw = short_raw[:120] + "…"
+            suffix = f" [{provider}]" if provider else ""
+            return f"{code}: {short_raw}{suffix}"
+        msg_match = re.search(r"'message':\s*'([^']+)'", remainder)
+        if msg_match:
+            suffix = f" [{provider}]" if provider else ""
+            return f"{code}: {msg_match.group(1)}{suffix}"
+        return f"{code}: {remainder[:120]}"
+
+    # --- Fallback: truncate to 150 chars ---
+    if len(err_str) > 150:
+        return err_str[:150] + "…"
+    return err_str
 
 # Streaming read timeouts (seconds) keyed by intent.
 # Connection timeout is always 10s; read timeout varies by complexity.
@@ -54,7 +126,7 @@ STREAM_READ_TIMEOUTS: Dict[str, float] = {
     "assistant_capabilities": 15,
     "general_knowledge": 30,
     "financial_general": 30,
-    "report_architect": 30,
+    "report_architect": 45,
     "invoice_lookup": 45,
     "anomaly_lookup": 45,
     "reconciliation_analysis": 60,
@@ -81,7 +153,7 @@ TOKEN_LIMITS = {
     "comparison": 2000,
     "recommendations": 3000,
     "financial_analysis": 3000,
-    "report_architect": 400,
+    "report_architect": 2000,
     "general_knowledge": 800,
     "financial_general": 800,
     "greeting": 0,
@@ -259,11 +331,52 @@ def _record_success(model_name: str, latency: float) -> None:
             stats.avg_latency = (stats.avg_latency * (stats.success_count - 1) + latency) / stats.success_count
 
 
-def _record_failure(model_name: str, error: Exception, pool: str) -> None:
-    is_rate_limit = isinstance(error, RateLimitError) or (
-        isinstance(error, APIStatusError) and getattr(error, "status_code", None) == 429
+def _is_permanent_error(error: Exception) -> bool:
+    """
+    Detects if an error indicates a permanent model unavailability (e.g. 404, model deleted,
+    paid-only, or no endpoints found).
+    """
+    if isinstance(error, APIStatusError) and getattr(error, "status_code", None) == 404:
+        return True
+    msg = str(error).lower()
+    permanent_indicators = (
+        "404",
+        "no endpoints found",
+        "model unavailable",
+        "unavailable for free",
+        "does not exist",
+        "is not available for free",
+        "not found",
     )
-    cooldown_seconds = MODEL_COOLDOWN_SECONDS if is_rate_limit else MODEL_COOLDOWN_SECONDS * 2
+    return any(ind in msg for ind in permanent_indicators)
+
+
+def _is_temporary_provider_error(error: Exception) -> bool:
+    """
+    Detects if an error is a temporary provider rate limit or capacity exhaustion (e.g. 429,
+    service overloaded, ResourceExhausted).
+    """
+    if isinstance(error, RateLimitError):
+        return True
+    if isinstance(error, APIStatusError) and getattr(error, "status_code", None) in (429, 503):
+        return True
+    msg = str(error).lower()
+    temporary_indicators = (
+        "429",
+        "rate limit",
+        "rate_limit",
+        "temporarily overloaded",
+        "resourceexhausted",
+        "request limit reached",
+        "capacity",
+        "overloaded",
+    )
+    return any(ind in msg for ind in temporary_indicators)
+
+
+def _record_failure(model_name: str, error: Exception, pool: str) -> None:
+    is_perm = _is_permanent_error(error)
+    is_temp = _is_temporary_provider_error(error)
 
     with _health_lock:
         stats = _model_health.setdefault(model_name, ModelHealthStats(model_name, pool))
@@ -272,16 +385,35 @@ def _record_failure(model_name: str, error: Exception, pool: str) -> None:
         stats.last_error = str(error)
         stats.pool = pool
 
-        if stats.consecutive_failures >= FAILURE_THRESHOLD:
+        if is_perm:
+            # Permanent unavailability (404, no endpoints, paid-only): immediately cool down for 24h
+            stats.cooldown_expires = _utcnow() + timedelta(seconds=PERMANENT_COOLDOWN_SECONDS)
+            stats.consecutive_failures = 0
+            logger.error(
+                "Model %s is permanently unavailable (%s). Cooldown %ss.",
+                model_name, _format_error(error), PERMANENT_COOLDOWN_SECONDS,
+            )
+        elif is_temp:
+            # Temporary provider capacity/rate issue (429, overloaded): immediately cool down for 60s
+            stats.cooldown_expires = _utcnow() + timedelta(seconds=MODEL_COOLDOWN_SECONDS)
+            stats.consecutive_failures = 0
+            logger.warning(
+                "Model %s hit temporary provider limit (%s). Cooldown %ss.",
+                model_name, _format_error(error), MODEL_COOLDOWN_SECONDS,
+            )
+        elif stats.consecutive_failures >= FAILURE_THRESHOLD:
+            cooldown_seconds = MODEL_COOLDOWN_SECONDS * 2
             stats.cooldown_expires = _utcnow() + timedelta(seconds=cooldown_seconds)
             stats.consecutive_failures = 0
             logger.warning(
-                "Model %s reached failure threshold (%s). Cooling down for %ss (rate_limit=%s)",
-                model_name, FAILURE_THRESHOLD, cooldown_seconds, is_rate_limit,
+                "Model %s reached failure threshold (%s). Cooling down for %ss",
+                model_name, FAILURE_THRESHOLD, cooldown_seconds,
             )
 
 
 def _is_retryable_error(error: Exception) -> bool:
+    if _is_permanent_error(error):
+        return False
     if isinstance(error, (APITimeoutError, APIConnectionError)):
         return True
     if isinstance(error, APIStatusError):
@@ -760,7 +892,7 @@ def stream_answer(prompt: str, max_tokens: int = 2000, intent: str = "unknown", 
     system_prompt = build_system_prompt(context, intent=intent)
 
     # If a specific model is requested, create a single-tier config for that model
-    if model_override:
+    if model_override and model_override != "auto":
         tiers = [ModelTier(models=[ModelConfig(name=model_override, tier=1, enabled=True)], timeout=30.0)]
     else:
         tiers = get_model_tiers(intent)
@@ -830,13 +962,13 @@ def stream_answer(prompt: str, max_tokens: int = 2000, intent: str = "unknown", 
                 ):
                     if err is not None:
                         last_error = err
-                        model_errors.append(f"{model.name}: {err}")
+                        model_errors.append(f"{model.name}: {_format_error(err)}")
                         if not stream_started:
                             # No chunks sent yet — allowed to fallback
-                            logger.warning("Model %s failed before first chunk: %s", model.name, err)
+                            logger.warning("Model %s failed before first chunk: %s", model.name, _format_error(err))
                         else:
                             # Stream already started — cannot fallback
-                            logger.error("Model %s failed AFTER streaming started: %s", model.name, err)
+                            logger.error("Model %s failed AFTER streaming started: %s", model.name, _format_error(err))
                         break
                     if isinstance(chunk, dict):
                         finish_reason = chunk.get("finish_reason", finish_reason)
@@ -862,12 +994,12 @@ def stream_answer(prompt: str, max_tokens: int = 2000, intent: str = "unknown", 
                     yield chunk, None
             except Exception as error:
                 last_error = error
-                model_errors.append(f"{model.name}: {error}")
+                model_errors.append(f"{model.name}: {_format_error(error)}")
                 if not stream_started:
-                    logger.warning("Model %s failed with exception before first chunk: %s", model.name, error)
+                    logger.warning("Model %s failed with exception before first chunk: %s", model.name, _format_error(error))
                     continue  # Allowed to fallback
                 else:
-                    logger.error("Model %s failed with exception AFTER streaming started: %s", model.name, error)
+                    logger.error("Model %s failed with exception AFTER streaming started: %s", model.name, _format_error(error))
                     _record_failure(model.name, error, pool)
                     # Cannot fallback — terminate the stream gracefully but include model info for frontend
                     response_time = round(time.perf_counter() - start_time, 2)
@@ -980,8 +1112,13 @@ def generate_answer(prompt: str, max_tokens: int = 2000, intent: str = "unknown"
     continuation_used = False
     max_tokens = _get_token_limit_for_intent(intent, max_tokens)
 
-    # Use tighter budget for simple definitional questions
-    budget = FAST_REQUEST_BUDGET_SECONDS if intent in FAST_INTENTS else COMPLEX_REQUEST_BUDGET_SECONDS
+    # Use dedicated budget for report architect, fast budget for greetings, complex for analysis
+    if intent == "report_architect":
+        budget = ARCHITECT_REQUEST_BUDGET_SECONDS
+    elif intent in FAST_INTENTS:
+        budget = FAST_REQUEST_BUDGET_SECONDS
+    else:
+        budget = COMPLEX_REQUEST_BUDGET_SECONDS
 
     # Allow a custom system prompt to be supplied (e.g. AI Report Architect).
     # Fall back to the built-in intent-based system prompt when not provided.
@@ -1050,7 +1187,7 @@ def generate_answer(prompt: str, max_tokens: int = 2000, intent: str = "unknown"
                             f"min expected {MIN_RESPONSE_LENGTH})"
                         )
                         _record_failure(model.name, truncated_error, pool)
-                        model_errors.append(f"{model.name}: {truncated_error}")
+                        model_errors.append(f"{model.name}: {_format_error(truncated_error)}")
                         logger.warning(
                             "Response from model %s is truncated (%s chars < %s minimum). Triggering fallback.",
                             model.name, len(answer.strip()), MIN_RESPONSE_LENGTH,
@@ -1130,16 +1267,16 @@ def generate_answer(prompt: str, max_tokens: int = 2000, intent: str = "unknown"
                 if error is not None and _is_retryable_error(error) and attempt < MAX_RETRIES:
                     wait_seconds = 1.0
                     logger.warning(
-                        "Retryable error from model %s (attempt %s/%s). Retrying in %ss. Error: %s",
-                        model.name, attempt + 1, MAX_RETRIES + 1, wait_seconds, error,
+                        "Retryable error from model %s (attempt %s/%s). Retrying in %ss: %s",
+                        model.name, attempt + 1, MAX_RETRIES + 1, wait_seconds, _format_error(error),
                     )
                     time.sleep(wait_seconds)
                     continue
                 break
 
             if error is not None:
-                model_errors.append(f"{model.name}: {error}")
-                logger.warning("Model %s failed, switching to next model: %s", model.name, error)
+                model_errors.append(f"{model.name}: {_format_error(error)}")
+                logger.warning("Model %s failed, switching to next model: %s", model.name, _format_error(error))
 
         # All models in this tier failed, log and continue to next tier
         logger.warning("Tier %s/%s exhausted, moving to next tier", tier_index + 1, len(tiers))

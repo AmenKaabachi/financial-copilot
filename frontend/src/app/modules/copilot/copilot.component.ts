@@ -60,15 +60,24 @@ export class CopilotComponent implements OnInit, OnDestroy {
   selectedModel: string = 'auto';
   modelOptions = [
     { id: 'auto', name: 'Auto (Smart Routing)', tag: 'Recommended' },
-    { id: 'openai/gpt-oss-20b:free', name: 'GPT OSS 20B', tag: 'Fast' },
+    // Tier 1 - Fast / Domain
+    { id: 'inclusionai/ling-3.0-flash-fin:free', name: 'Ling 3.0 Flash Fin', tag: 'Finance' },
+    { id: 'nvidia/nemotron-3.5-lightning:free', name: 'Nemotron 3.5 Lightning', tag: 'Fast' },
+    { id: 'cohere/north-mini-code:free', name: 'Cohere North Mini Code', tag: 'JSON/Code' },
     { id: 'google/gemma-4-26b-a4b-it:free', name: 'Gemma 4 26B A4B', tag: 'Balanced' },
     { id: 'poolside/laguna-xs-2.1:free', name: 'Laguna XS 2.1', tag: 'Fast' },
+    { id: 'liquid/lfm-2.5-2.6b:free', name: 'Liquid LFM 2.5 2.6B', tag: 'Ultra Fast' },
+    { id: 'thinkingmachines/inkling-small:free', name: 'Inkling Small', tag: 'Compact' },
+    // Tier 2 - Medium / Reconciliation
     { id: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free', name: 'Nemotron Omni 30B', tag: 'Reasoning' },
-    { id: 'nvidia/nemotron-3-nano-30b-a3b:free', name: 'Nemotron Nano 30B', tag: 'Medium' },
-    { id: 'nvidia/nemotron-nano-9b-v2:free', name: 'Nemotron Nano 9B', tag: 'Compact' },
-    { id: 'google/gemma-4-31b-it:free', name: 'Gemma 4 31B IT', tag: 'High Quality' },
+    { id: 'poolside/laguna-s-2.1:free', name: 'Laguna S 2.1', tag: 'Medium' },
+    { id: 'z-ai/glm-5.2:free', name: 'GLM 5.2', tag: 'Multilingual' },
+    { id: 'minimax/minimax-m2.7:free', name: 'MiniMax M2.7', tag: 'Analysis' },
+    // Tier 3 - Full / Complex Analysis
     { id: 'nvidia/nemotron-3-ultra-550b-a55b:free', name: 'Nemotron Ultra 550B', tag: 'Ultra' },
     { id: 'nvidia/nemotron-3-super-120b-a12b:free', name: 'Nemotron Super 120B', tag: 'Super' },
+    { id: 'minimax/minimax-m3:free', name: 'MiniMax M3', tag: 'Executive' },
+    { id: 'google/gemma-4-31b-it:free', name: 'Gemma 4 31B IT', tag: 'High Quality' },
   ];
   modelDropdownOpen = false;
 

@@ -38,15 +38,24 @@ export interface BenchmarkResponse {
 }
 
 export const AVAILABLE_BENCHMARK_MODELS = [
-  { id: 'openai/gpt-oss-20b:free', name: 'GPT OSS 20B', tag: 'Fast' },
+  // Fast / Lightweight / Financial
+  { id: 'inclusionai/ling-3.0-flash-fin:free', name: 'Ling 3.0 Flash Fin', tag: 'Finance' },
+  { id: 'nvidia/nemotron-3.5-lightning:free', name: 'Nemotron 3.5 Lightning', tag: 'Fast' },
+  { id: 'cohere/north-mini-code:free', name: 'Cohere North Mini Code', tag: 'JSON/Code' },
   { id: 'google/gemma-4-26b-a4b-it:free', name: 'Gemma 4 26B A4B', tag: 'Balanced' },
   { id: 'poolside/laguna-xs-2.1:free', name: 'Poolside Laguna XS 2.1', tag: 'Fast' },
+  { id: 'liquid/lfm-2.5-2.6b:free', name: 'Liquid LFM 2.5 2.6B', tag: 'Ultra Fast' },
+  { id: 'thinkingmachines/inkling-small:free', name: 'Inkling Small', tag: 'Compact' },
+  // Medium / Reasoning / Multilingual
   { id: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free', name: 'Nemotron 3 Nano Omni 30B Reasoning', tag: 'Reasoning' },
-  { id: 'nvidia/nemotron-3-nano-30b-a3b:free', name: 'Nemotron 3 Nano 30B', tag: 'Medium' },
-  { id: 'nvidia/nemotron-nano-9b-v2:free', name: 'Nemotron Nano 9B v2', tag: 'Compact' },
-  { id: 'google/gemma-4-31b-it:free', name: 'Gemma 4 31B IT', tag: 'High Quality' },
+  { id: 'poolside/laguna-s-2.1:free', name: 'Poolside Laguna S 2.1', tag: 'Medium' },
+  { id: 'z-ai/glm-5.2:free', name: 'GLM 5.2', tag: 'Multilingual' },
+  { id: 'minimax/minimax-m2.7:free', name: 'MiniMax M2.7', tag: 'Analysis' },
+  // Full / High Capacity / Executive
   { id: 'nvidia/nemotron-3-ultra-550b-a55b:free', name: 'Nemotron 3 Ultra 550B', tag: 'Ultra' },
   { id: 'nvidia/nemotron-3-super-120b-a12b:free', name: 'Nemotron 3 Super 120B', tag: 'Super' },
+  { id: 'minimax/minimax-m3:free', name: 'MiniMax M3', tag: 'Executive' },
+  { id: 'google/gemma-4-31b-it:free', name: 'Gemma 4 31B IT', tag: 'High Quality' },
 ];
 
 export const INTENT_OPTIONS = [

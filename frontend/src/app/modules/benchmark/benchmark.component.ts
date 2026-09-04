@@ -25,7 +25,7 @@ export class BenchmarkComponent {
   // Configuration Inputs
   question: string = 'Explain why invoice INV00020 failed reconciliation';
   selectedModels: string[] = [
-    'openai/gpt-oss-20b:free',
+    'inclusionai/ling-3.0-flash-fin:free',
     'google/gemma-4-26b-a4b-it:free',
     'google/gemma-4-31b-it:free'
   ];

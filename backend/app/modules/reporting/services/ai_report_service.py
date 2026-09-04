@@ -166,12 +166,12 @@ class AIReportService:
         )
 
         try:
-            # Call with report_architect intent for lightweight JSON generation
-            # Increased max_tokens to 400 to allow room for reasoning + output
+            # Call with report_architect intent for structured JSON generation
+            # max_tokens=2000 provides ample headroom for both internal reasoning tokens and full JSON output
             result = generate_answer(
                 prompt=user_instruction,
                 system_prompt=system_prompt,
-                max_tokens=400,
+                max_tokens=2000,
                 intent="report_architect",
             )
 
